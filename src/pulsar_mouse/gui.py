@@ -395,12 +395,28 @@ class PulsarMouseApp(Adw.Application):
         self._device = None  # PulsarDevice instance
 
     def _find_or_create_device(self) -> PulsarDevice | None:
-        if self._device is not None:
-            return self._device
+        """The mouse to use now, rescanning if the one we had has gone.
+
+        It used to return whatever was found at startup for the life of the
+        process, so opening the window after unplugging something showed "not
+        found" until the next battery poll came round and noticed - reported
+        by @iamtherobin, who pointed out that opening the window is itself a
+        good moment to look (#11).
+        """
+        current = self._device
+        if current is not None and device_present(current):
+            return current
         try:
-            self._device = find_device()
+            found = find_device()
         except RuntimeError:
-            self._device = None
+            return current      # nothing plugged in; keep naming what we want
+        if current is None:
+            self._device = found
+        elif type(found) is not type(current):
+            # A different driver: the mouse moved to its other connection, or
+            # this is another mouse entirely.  Either way the menu and window
+            # were built for the old one.
+            self._adopt_device(found, f'{current.capabilities.name} is gone')
         return self._device
 
     def _on_activate(self, app):
@@ -418,6 +434,10 @@ class PulsarMouseApp(Adw.Application):
         if wins:
             wins[0].present()
             return
+        # Look before building: the mouse may have moved since the last poll,
+        # and a window that opens saying "not found" and corrects itself a
+        # minute later is worse than one that takes a moment to appear.
+        self._follow_device_swap()
         device = self._find_or_create_device()
         win = MainWindow(application=app, device=device)
         win.present()
@@ -632,20 +652,31 @@ class PulsarMouseApp(Adw.Application):
             sibling = find_sibling(device)
             if sibling is None:
                 return False
-        try:
-            device.close()
-        except Exception:
-            pass
-        self._device = sibling
         why = ('is gone' if not device_present(device)
                else 'cannot reach the mouse while it is cabled')
-        print(f'{device.capabilities.name} {why}; '
-              f'following the mouse to {sibling.capabilities.name}')
+        self._adopt_device(sibling, f'{device.capabilities.name} {why}')
+        return True
+
+    def _adopt_device(self, device, reason: str) -> None:
+        """Start using `device`, rebuilding whatever was built for the last one.
+
+        The two halves of a mouse differ in what they can do, so the tray menu
+        and the window are built again rather than reloaded.  The event
+        listener needs no telling: it re-reads self._device as it loops.
+        """
+        old = self._device
+        if old is not None and old is not device:
+            try:
+                old.close()
+            except Exception:
+                pass
+        self._device = device
+        print(f'{reason}; following the mouse to {device.capabilities.name}')
 
         if self._menu_server is not None:
             # The whole menu, not the DPI submenu: polling rates, battery and
             # signal all depend on which half of the mouse this is.
-            self._menu_server.set_root(self._build_tray_menu(sibling))
+            self._menu_server.set_root(self._build_tray_menu(device))
         self._battery_text = self._conn_text = None
         self._last_signal_percent = None
         self._read_initial_state()
@@ -653,11 +684,10 @@ class PulsarMouseApp(Adw.Application):
         # The window is built from capabilities too, so it has to be built
         # again rather than reloaded.  Only when one is open: closing to the
         # tray and swapping should not put a window back on screen.
-        if self.get_windows():
+        if self.get_windows() and self._win is not None:
             self._win.destroy()
             self._win = None
             GLib.idle_add(self.activate)
-        return True
 
     def _refresh_battery(self):
         if self._follow_device_swap():
@@ -748,16 +778,22 @@ class PulsarMouseApp(Adw.Application):
             self._sni.set_tooltip('\n'.join(lines))
 
     def _hidraw_listener(self):
-        device = self._device
-        if device is None:
-            return
-        if not _reports_events(device):
-            return          # this driver reports nothing; no thread needed
         last_signal_update = 0.0
         # The node disappears whenever anything claims that USB interface -
         # our own battery polls, and the read a 'dpi_changed' event asks for -
         # so reopen it instead of giving up on the first error.
+        #
+        # self._device is re-read every time round rather than captured once:
+        # the mouse can move to its other connection while this runs, and a
+        # listener holding the half that left stops reporting anything.
+        # @iamtherobin saw exactly that - after a swap the DPI button stopped
+        # being tracked until the app went back to the connection it started
+        # on (#11).
         while True:
+            device = self._device
+            if device is None or not _reports_events(device):
+                time.sleep(2.0)     # nothing to listen to; look again later
+                continue
             path = device.find_hidraw()
             if not path:
                 time.sleep(_NODE_WAIT)
@@ -768,7 +804,12 @@ class PulsarMouseApp(Adw.Application):
                 time.sleep(_NODE_WAIT)
                 continue
             try:
-                while True:
+                # select() rather than a blocking read, so a swap is noticed
+                # while the mouse is quiet instead of at its next report.
+                while device is self._device:
+                    ready, _w, _x = select.select([fd], [], [], 1.0)
+                    if not ready:
+                        continue
                     data = os.read(fd, 256)
                     if not data:
                         break
