@@ -39,6 +39,7 @@ import glob
 import os
 import select
 import struct
+import sys
 import time
 from typing import Optional
 
@@ -367,11 +368,16 @@ class PulsarNordic(PulsarDevice):
         # write here becomes the same SET_REPORT control transfer libusb was
         # sending by hand.
         path = self.find_hidraw()
-        if path:
+        if not path:
+            self._warn_libusb_fallback('no hidraw node for the config interface')
+        else:
             try:
                 self._fd = os.open(path, os.O_RDWR)
-            except OSError:
-                self._fd = None     # no permission, say; fall through
+            except OSError as why:
+                # Usually permissions: the udev rules grant read *and* write
+                # on these nodes, and a rule from an older install won't.
+                self._warn_libusb_fallback(f'{path}: {why}')
+                self._fd = None
             else:
                 try:
                     self._after_open()
@@ -414,6 +420,25 @@ class PulsarNordic(PulsarDevice):
             except Exception:
                 pass
             raise
+
+    # Said once per process: a fallback is not a failure, so it mustn't shout,
+    # but it is silent otherwise and the difference matters — on the libusb
+    # path configuring still detaches the kernel driver from an interface
+    # that carries input (#13).  Anyone testing that fix needs to know which
+    # path they are actually on.
+    _warned_libusb_fallback = False
+
+    @classmethod
+    def _warn_libusb_fallback(cls, why: str) -> None:
+        if PulsarNordic._warned_libusb_fallback:
+            return
+        PulsarNordic._warned_libusb_fallback = True
+        print(f'pulsar-mouse: talking to the mouse over libusb, not hidraw '
+              f'({why}).\n'
+              f'  Configuring will briefly detach the kernel driver from an '
+              f'interface that also carries input, which can disturb the '
+              f'mouse while a game is running (issue #13).',
+              file=sys.stderr)
 
     def _after_open(self) -> None:
         """Read the memory map and note which profile the user was on."""
