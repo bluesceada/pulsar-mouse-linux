@@ -437,7 +437,7 @@ class PulsarMouseApp(Adw.Application):
         # Look before building: the mouse may have moved since the last poll,
         # and a window that opens saying "not found" and corrects itself a
         # minute later is worse than one that takes a moment to appear.
-        self._follow_device_swap()
+        self._follow_device_swap(self._SWAP_LOCK_WAIT_OPENING)
         device = self._find_or_create_device()
         win = MainWindow(application=app, device=device)
         win.present()
@@ -619,7 +619,20 @@ class PulsarMouseApp(Adw.Application):
                 pass
         threading.Thread(target=_read, daemon=True).start()
 
-    def _follow_device_swap(self) -> bool:
+    # How long _follow_device_swap() will wait for the USB lock before
+    # giving up and looking again next time.  It runs on the GTK main
+    # thread, and find_sibling() now opens a shared dongle to ask which
+    # mouse it carries, so the lock it needs may be held by a worker in the
+    # middle of a window reload - twenty-odd USB reads.  Waiting for that
+    # unbounded freezes the UI for as long as it takes; measured at 2.96s
+    # against a worker holding the lock for 3s.  A missed check costs a
+    # minute, so the timer barely waits.  Opening the window waits longer,
+    # because the user is already waiting and a window that opens describing
+    # the wrong half is what this check exists to prevent.
+    _SWAP_LOCK_WAIT = 0.25
+    _SWAP_LOCK_WAIT_OPENING = 1.5
+
+    def _follow_device_swap(self, lock_wait: float = _SWAP_LOCK_WAIT) -> bool:
         """Move to the mouse's other connection when this one has gone.
 
         Plugging the cable in to charge and pulling it out later used to leave
@@ -647,19 +660,31 @@ class PulsarMouseApp(Adw.Application):
                 return False
             # find_sibling() may open the dongle to ask which mouse it
             # carries, so it must not run while a worker holds the device.
-            with _USB_LOCK:
-                sibling = find_sibling(device)
+            sibling = self._sibling_if_lock_free(device, lock_wait)
             if sibling is None or sibling.capabilities.wireless is not False:
                 return False
         else:
-            with _USB_LOCK:
-                sibling = find_sibling(device)
+            sibling = self._sibling_if_lock_free(device, lock_wait)
             if sibling is None:
                 return False
         why = ('is gone' if not device_present(device)
                else 'cannot reach the mouse while it is cabled')
         self._adopt_device(sibling, f'{device.capabilities.name} {why}')
         return True
+
+    @staticmethod
+    def _sibling_if_lock_free(device, wait: float):
+        """find_sibling() under the USB lock, or None if it stays busy.
+
+        None here means "don't know", not "no sibling" — the caller treats
+        both the same, and the next check comes round soon enough.
+        """
+        if not _USB_LOCK.acquire(timeout=wait):
+            return None
+        try:
+            return find_sibling(device)
+        finally:
+            _USB_LOCK.release()
 
     def _adopt_device(self, device, reason: str) -> None:
         """Start using `device`, rebuilding whatever was built for the last one.
