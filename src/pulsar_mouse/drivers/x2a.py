@@ -162,6 +162,17 @@ class PulsarX2A(PulsarDevice):
             rsp = self._get_report()
         return rsp
 
+    # 0x02 means the request is pending and 0x01 means the device has
+    # answered, which xlite_v4_wireless.py has to wait for: over the air a
+    # command sent while the last one is still pending gets dropped, and its
+    # late reply is handed to the next read (#15).  Accepting 0x02 here is
+    # deliberate.  Measured on a cabled X2A: a write is pending at 18 ms and
+    # done at 28 ms, so this does return about 10 ms early — but five writes
+    # of distinct values back to back all landed, and four writes each
+    # followed straight away by a read of a different register answered from
+    # the right one every time.  The race the dongle suffers doesn't reach
+    # the cable, and waiting for 0x01 would add a poll to every write on
+    # five drivers to fix something that isn't happening.
     def _cmd(self, cat, reg, sub, profile, payload=()):
         self._set_report(self._build(cat, reg, sub, profile, payload))
         rsp = self._poll_ack((0x01, 0x02))
