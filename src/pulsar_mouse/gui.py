@@ -2279,8 +2279,15 @@ X-GNOME-Autostart-enabled=true
         dialog = Adw.AlertDialog()
         dialog.set_heading('Reset to Factory Defaults?')
         dialog.set_body(
+            # "All profiles" was wrong on the X2A, where a reset leaves
+            # the other profiles alone but takes the globals with it
+            # (measured 2026-10-13).  Nordic models send a reset that
+            # carries no profile at all, so there it may well be
+            # everything — hence the last line rather than a promise.
             'This sends the firmware reset command to the mouse.\n'
-            'All profiles will be restored to factory defaults.'
+            'This profile and the global settings - polling rate, debounce,\n'
+            'angle snap, ripple control, motion sync - go back to factory\n'
+            'defaults. On some models every profile does.'
         )
         dialog.add_response('cancel', 'Cancel')
         dialog.add_response('reset', 'Reset')

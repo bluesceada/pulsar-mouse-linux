@@ -297,7 +297,10 @@ Examples:
     pp.add_argument('--import', metavar='FILE', dest='import_file',
                     help='Import profile settings from JSON file')
     pp.add_argument('--reset', action='store_true',
-                    help='Reset profile to factory defaults')
+                    help='Reset profile to factory defaults - this also '
+                         'resets the settings tracked per active profile '
+                         '(polling rate, debounce, angle snap, ripple, '
+                         'motion sync)')
 
     return p
 
@@ -612,7 +615,12 @@ def main():
                 else:
                     try:
                         device.reset_to_defaults(prof)
-                        print(f"Profile {prof} reset to factory defaults")
+                        # Measured on the X2A: the globals go back to
+                        # factory too, so saying only "profile N" sends
+                        # people looking for what changed their debounce.
+                        print(f"Profile {prof} reset to factory defaults "
+                              "(polling rate, debounce, angle snap, ripple "
+                              "and motion sync are reset as well)")
                     except NotImplementedError:
                         print("Factory reset is not supported on "
                               f"{caps.name} — skipped")

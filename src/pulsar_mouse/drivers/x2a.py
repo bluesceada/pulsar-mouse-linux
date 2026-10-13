@@ -356,6 +356,14 @@ class PulsarX2A(PulsarDevice):
 
     # ── Factory reset ─────────────────────────────────────────────────────
 
+    # Measured on a cabled X2A (2026-10-13): this resets the profile it is
+    # given *and* every global — polling rate to 1000 Hz, debounce to 3 ms,
+    # angle snap, ripple control and motion sync all off — while the other
+    # four profiles keep everything they had.  So despite taking a profile
+    # argument it is not a per-profile operation, and 3 ms is this model's
+    # factory debounce.  Checked by marking three profiles with distinct
+    # DPI stages, moving all five globals off their defaults, resetting
+    # profile 5 alone, and reading all of it back.
     def reset_to_defaults(self, profile: int) -> None:
         self._cmd(0x02, 0x05, 0x01, profile)
         pkt = self._build(0x02, 0x06, 0x01, profile)
