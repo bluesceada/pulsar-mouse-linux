@@ -132,6 +132,46 @@ _EVENT_COALESCE_MS = 300
 _NODE_WAIT = 0.3
 
 
+def _dont_edit_on_scroll(widget):
+    """Stop a stray wheel turn over `widget` from changing its value.
+
+    Gtk.Scale takes the wheel as a value change, so scrolling a settings
+    page with the pointer over a slider silently moves it - and Apply
+    writes everything pending, so the next Apply sends the mouse a value
+    nobody chose.  Reported on Discord (2026-10-13: "scrolling on top of
+    the debounce slider changed the values"), and it is how this
+    maintainer's own X2A came to sit at 13 ms debounce.
+
+    The controller runs in the capture phase, so it sees the event before
+    the widget does.  It hands the scroll to the enclosing page rather
+    than swallowing it: the wheel still scrolls, it just no longer edits.
+
+    Sliders only.  Measured under Xvfb with real wheel events (xdotool),
+    on a page holding a guarded and an unguarded copy of each widget:
+    three notches over an unguarded Gtk.Scale moved it 5 -> 11, the
+    guarded one held its value and the page scrolled instead, and an
+    Adw.SpinRow ignored the wheel either way - GTK4's spin button does not
+    edit on scroll, so rows built from one need nothing here.
+    """
+    ctrl = Gtk.EventControllerScroll(
+        flags=Gtk.EventControllerScrollFlags.BOTH_AXES)
+    ctrl.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+    ctrl.connect('scroll', _scroll_enclosing_page)
+    widget.add_controller(ctrl)
+
+
+def _scroll_enclosing_page(ctrl, _dx, dy):
+    """Scroll the page this widget sits on by hand, and claim the event."""
+    page = ctrl.get_widget().get_ancestor(Gtk.ScrolledWindow)
+    if page is not None:
+        adj = page.get_vadjustment()
+        # A wheel notch arrives as dy = +/-1.0, and a ScrolledWindow's own
+        # step increment is still 0 before it has been sized.
+        step = adj.get_step_increment() or max(adj.get_page_size() * 0.1, 40.0)
+        adj.set_value(adj.get_value() + dy * step)   # clamps itself
+    return True
+
+
 def _connection_quality_label(pct):
     # Bands are this app's own estimate, not confirmed against Fusion's
     # exact thresholds - see feinmann8k.py's parse_hidraw_event() docstring
@@ -2212,6 +2252,9 @@ X-GNOME-Autostart-enabled=true
             scale.set_draw_value(True)
             scale.set_value_pos(Gtk.PositionType.RIGHT)
             row.add_suffix(scale)
+        # On the row, not the scale: a capture-phase controller on an
+        # ancestor is what reliably beats GtkRange's own scroll handling.
+        _dont_edit_on_scroll(row)
         return row, scale
 
     # ── UI event handlers ────────────────────────────────────────────────
