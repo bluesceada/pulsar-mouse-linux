@@ -40,7 +40,8 @@ stage at its minimum and no battery, and the whole set comes out looking
 plausible and completely wrong. The script reads the battery before the first
 shot and stops if nothing is home, and checks again at the end in case the
 mouse fell asleep partway through — which is easy, since a 30-second sleep
-timer is shorter than a full run.
+timer is shorter than a full run. A mouse it can't open at all is a separate
+message: that one is the udev rules, not sleep.
 
 Install first, on Debian/Ubuntu:
 

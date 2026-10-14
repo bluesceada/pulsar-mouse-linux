@@ -130,34 +130,43 @@ def scrub_desktop(keep_wayland):
     return config_home
 
 
-def asleep(device):
-    """Why this mouse can't be photographed right now, or None.
+def probe(device):
+    """Ask the mouse the one question that catches it asleep.
 
-    A sleeping wireless mouse doesn't stop answering - that is the trap.
-    The dongle replies on its behalf with invented values: 125 Hz, every DPI
-    stage at its minimum, no battery.  Every shot still comes out, still
-    prints `ok`, and the whole set is fiction.  @f-o-o-g-s lost a run to
-    this in #18 with a mouse that sleeps after 30 seconds and a run that
-    takes about 40.
+    Returns (unreachable, asleep); each is a message or None, and they are
+    different problems.  A sleeping wireless mouse doesn't stop answering -
+    that is the trap.  The dongle replies on its behalf with invented
+    values: 125 Hz, every DPI stage at its minimum, no battery.  Every shot
+    still comes out, still prints `ok`, and the whole set is fiction.
+    @f-o-o-g-s lost a run to this in #18 with a mouse that sleeps after 30
+    seconds and a run that takes about 40.
 
-    The battery is the honest reading: the dongle answers 0xFF when it has
-    no mouse to ask, and the driver raises on that.  A mouse on its cable
-    never sleeps, and a wired-only driver has no get_power() to ask.
+    The battery is the honest reading: asked through the dongle it either
+    comes back 0xFF or times out, and the driver raises either way.  A mouse
+    on its cable never sleeps, and a wired-only driver has no get_power() to
+    ask.
+
+    A mouse that won't open at all is told apart from a sleeping one
+    because the advice differs: that is usually the udev rules, and no
+    amount of waking it helps.
     """
     if not hasattr(device, 'get_power'):
-        return None
+        return None, None
     # find_device() hands back a closed device, and the window opens and
-    # closes it around each of its own reads, so this has to as well.
-    # Without it get_power() raises on every wireless mouse, awake or not.
+    # closes it around each of its own reads, so this has to as well
+    # (@f-o-o-g-s, #22 - without it get_power() raises on every wireless
+    # mouse, awake or not).
     try:
         device.open()
-        try:
-            device.get_power()
-        finally:
-            device.close()
     except Exception as e:
-        return f'{type(e).__name__}: {e}'
-    return None
+        return f'{type(e).__name__}: {e}', None
+    try:
+        device.get_power()
+    except Exception as e:
+        return None, f'{type(e).__name__}: {e}'
+    finally:
+        device.close()
+    return None, None
 
 
 def main():
@@ -242,7 +251,12 @@ def run(args, wanted):
                  'readings, so one has to be plugged in (and reachable: see '
                  'the udev rules in udev/)')
 
-    napping = asleep(device)
+    unreachable, napping = probe(device)
+    if unreachable:
+        sys.exit(f"can't open {device.capabilities.name} ({unreachable}).\n"
+                 'The GUI would not be able to read it either, so every shot '
+                 'would be blank — install the udev rules in udev/ for this '
+                 'mouse, or run this with sudo.')
     if napping and not args.ignore_sleep:
         sys.exit(f'{device.capabilities.name} is not answering for itself '
                  f'({napping}).\n'
@@ -409,7 +423,7 @@ def run(args, wanted):
     # you even when the mouse was awake at the start: the shots before that
     # are real and the ones after it aren't, and nothing in the output says
     # which were which.
-    late = None if napping else asleep(device)
+    late = None if napping else probe(device)[1]
     if late:
         print()
         print(f'!!  the mouse stopped answering for itself partway through '
