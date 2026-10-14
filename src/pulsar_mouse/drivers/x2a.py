@@ -381,9 +381,16 @@ class PulsarX2A(PulsarDevice):
     # inherit this and had the same bug.
     _HIDRAW_INTERFACE = '/input1'
 
+    # What the mouse calls its first DPI stage in that report.  The X2A
+    # counts from zero: six presses of its own DPI button walked
+    # 400/800/1600/3200/6400/12800 as bytes 0x00 to 0x05 (2026-10, on the
+    # maintainer's X2A).  Not every Pulsar does - the X3 counts from one,
+    # which is why this is a number and not a hardcoded +1.
+    _DPI_EVENT_FIRST_STAGE = 0
+
     def parse_hidraw_event(self, data: bytes) -> Optional[dict]:
         if len(data) >= 7 and data[0] == 0x05 and data[1] == 0x05:
             dpi = struct.unpack_from('<H', data, 3)[0]
-            stage = data[2] + 1
+            stage = data[2] - self._DPI_EVENT_FIRST_STAGE + 1
             return {'dpi': dpi, 'stage': stage}
         return None

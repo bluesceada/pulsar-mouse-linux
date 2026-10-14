@@ -225,6 +225,14 @@ class PulsarXliteV4Wireless(Fusion2Power, PulsarXliteV4):
 
     # ── Hidraw events ─────────────────────────────────────────────────────
 
+    # The dongle passes the mouse's own DPI report straight through, so the
+    # stage numbering is the mouse's, not the dongle's.  @f-o-o-g-s saw the
+    # same 0x01..0x06 through this dongle as on the X3's cable (#17), and
+    # the X3 is the only mouse confirmed behind it.  If a Fusion2 mouse
+    # turns up that counts from zero, this can't stay a constant - the
+    # dongle would have to ask get_connected_mouse() who it is carrying.
+    _DPI_EVENT_FIRST_STAGE = 1
+
     def parse_hidraw_event(self, data: bytes) -> Optional[dict]:
         # Once a second the dongle pushes `05 0d <value>` on its event
         # interface, the same report the 8K dongle sends (see feinmann8k.py).

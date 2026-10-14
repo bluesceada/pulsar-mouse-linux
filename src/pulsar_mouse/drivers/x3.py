@@ -62,3 +62,11 @@ class PulsarX3(Fusion2Power, PulsarXliteV4):
         },
         wireless=False,
     )
+
+    # The X3 numbers its DPI stages from one in the event report, where the
+    # X2A numbers them from zero: @f-o-o-g-s pressed its button six times
+    # on the cable and six through the dongle and got 0x01..0x06 for
+    # 400/800/1600/3200/6400/12800 both ways (#17).  Without this the tray
+    # and Input Test showed the next stage up, and the sixth press showed a
+    # stage the mouse does not have.
+    _DPI_EVENT_FIRST_STAGE = 1

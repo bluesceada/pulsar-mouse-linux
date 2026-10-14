@@ -10,7 +10,10 @@ wheel (6 total buttons).
 
 Status: UNTESTED — protocol assumed identical to X2A based on shared Sonix
         chipset (VID 0x3710).  Button IDs may need adjustment once tested
-        with real hardware.
+        with real hardware.  So does _DPI_EVENT_FIRST_STAGE, inherited as 0
+        from the X2A: the two Fusion2 mice that have been measured, the X3
+        on its cable and on the 1K dongle, both count from 1 instead.  If
+        this mouse's DPI button reports one stage too high, that is why.
 """
 
 from pulsar_mouse.base import DeviceCapabilities
