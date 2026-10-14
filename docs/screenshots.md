@@ -3,7 +3,8 @@
 The images in `screenshots/`, shown in the README, are of the real GUI
 reading a real mouse. Every number in them came off hardware. That is the
 one rule here: no mock-ups, no edited values, no device that isn't actually
-plugged in.
+plugged in. The current set is a Pulsar X3 on the 1K dongle, taken by
+@f-o-o-g-s; `09-tray.png` is older and from a different machine.
 
 It also means **the screenshots can only show what the photographer's mouse
 can do**. A wired mouse has no Power page; a mouse without per-stage LEDs has
