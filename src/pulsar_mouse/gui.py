@@ -758,6 +758,21 @@ class PulsarMouseApp(Adw.Application):
             self._win = None
             GLib.idle_add(self.activate)
 
+    def _swap_check_on_close(self) -> bool:
+        """Look for a swap once the window has closed to the tray.
+
+        @iamtherobin's point in #11: opening the window is a good moment to
+        look, and so is closing it - the tray is what's left behind, and it
+        should not go on describing a connection that has gone.  Without
+        this the tray carried the old half until the next battery poll, up
+        to a minute later.
+
+        Runs from an idle callback so the window is gone before the USB
+        lock wait (_SWAP_LOCK_WAIT) can hold anything up.
+        """
+        self._follow_device_swap()
+        return False        # one-shot
+
     def _refresh_battery(self):
         if self._follow_device_swap():
             return True     # the new device's own read is already under way
@@ -1257,6 +1272,11 @@ class MainWindow(Adw.ApplicationWindow):
         # directly unblock or close the listener's fd - see this class's
         # own comment above for why that used to be here and didn't work.
         self._home_hidraw_stop = True
+        # The tray outlives this window, so hand the swap check over on the
+        # way out - see PulsarMouseApp._swap_check_on_close().
+        app = self.get_application()
+        if app is not None:
+            GLib.idle_add(app._swap_check_on_close)
         return False  # False = allow the close to proceed as normal
 
     def _build_ui(self):
