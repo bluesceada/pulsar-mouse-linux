@@ -21,6 +21,10 @@ Which shots you get depends on the mouse: the Power page only exists on a
 wireless one, the colour picker only on a mouse with per-stage LEDs.  The
 script says what it skipped and why.
 
+It keeps your desktop out of the pictures - no session variables, a
+throwaway config directory, a fixed title bar - so the set looks the same
+whoever takes it, and it refuses to photograph a sleeping mouse.
+
 09-tray.png cannot be taken this way — a tray icon needs a desktop with a
 status-icon host, and there isn't one here.  Take that one by hand on your
 own desktop; see docs/screenshots.md.
@@ -31,6 +35,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 
 # Every shot: the file name, what to do to get there, and how big the
@@ -57,6 +62,20 @@ SHOTS = [
 ]
 
 SCREEN = '1800x1700x24'      # must comfortably exceed the largest window
+
+# What the photographer's session would otherwise put in the pictures: the
+# GUI grows a Hyprland section and branches on Plasma and GNOME, and GTK
+# takes its theme, font and icon set from the desktop around it.
+DESKTOP_VARS = ('HYPRLAND_INSTANCE_SIGNATURE', 'XDG_CURRENT_DESKTOP',
+                'XDG_SESSION_DESKTOP', 'DESKTOP_SESSION', 'KDE_FULL_SESSION',
+                'GNOME_DESKTOP_SESSION_ID', 'GTK_THEME', 'GTK_RC_FILES',
+                'GTK2_RC_FILES', 'WAYLAND_DISPLAY')
+
+# Window controls, as GNOME lays them out.  Without this the set comes out
+# with whatever buttons the photographer's window manager asks for - three
+# on a bare GTK default, one on GNOME - which is a visible difference in
+# every single shot.
+DECORATION_LAYOUT = ':close'
 
 
 def need(binary):
@@ -91,6 +110,49 @@ def capture(title, path):
     return None
 
 
+def scrub_desktop(keep_wayland):
+    """Take the photographer's desktop out of the frame.
+
+    The same mouse on two desktops otherwise gives two different sets:
+    @f-o-o-g-s's first run for #18 came back in his own theme and font with
+    a "Hyprland Mouse Settings" group sitting in the middle of Performance.
+
+    Returns a throwaway XDG_CONFIG_HOME for the caller to delete.  GTK reads
+    settings.ini and dconf from there, so pointing it at an empty directory
+    is what gets the default theme rather than yours.
+    """
+    for var in DESKTOP_VARS:
+        if var == 'WAYLAND_DISPLAY' and keep_wayland:
+            continue        # --live on a Wayland session needs it to connect
+        os.environ.pop(var, None)
+    config_home = tempfile.mkdtemp(prefix='pulsar-screenshots-config-')
+    os.environ['XDG_CONFIG_HOME'] = config_home
+    return config_home
+
+
+def asleep(device):
+    """Why this mouse can't be photographed right now, or None.
+
+    A sleeping wireless mouse doesn't stop answering - that is the trap.
+    The dongle replies on its behalf with invented values: 125 Hz, every DPI
+    stage at its minimum, no battery.  Every shot still comes out, still
+    prints `ok`, and the whole set is fiction.  @f-o-o-g-s lost a run to
+    this in #18 with a mouse that sleeps after 30 seconds and a run that
+    takes about 40.
+
+    The battery is the honest reading: the dongle answers 0xFF when it has
+    no mouse to ask, and the driver raises on that.  A mouse on its cable
+    never sleeps, and a wired-only driver has no get_power() to ask.
+    """
+    if not hasattr(device, 'get_power'):
+        return None
+    try:
+        device.get_power()
+    except Exception as e:
+        return f'{type(e).__name__}: {e}'
+    return None
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -102,6 +164,9 @@ def main():
                          'X server (your windows will flash past)')
     ap.add_argument('--theme', choices=['dark', 'light'], default='dark',
                     help='the README set is dark (default: dark)')
+    ap.add_argument('--ignore-sleep', action='store_true',
+                    help="take them anyway when the battery can't be read "
+                         '(see --help on a sleeping mouse)')
     ap.add_argument('--list', action='store_true')
     args = ap.parse_args()
 
@@ -119,6 +184,8 @@ def main():
 
     need('xdotool')
     need('import')
+
+    config_home = scrub_desktop(keep_wayland=args.live)
 
     xvfb = None
     if not args.live:
@@ -144,6 +211,7 @@ def main():
     finally:
         if xvfb is not None:
             xvfb.terminate()
+        shutil.rmtree(config_home, ignore_errors=True)
 
 
 def run(args, wanted):
@@ -167,6 +235,16 @@ def run(args, wanted):
                  'readings, so one has to be plugged in (and reachable: see '
                  'the udev rules in udev/)')
 
+    napping = asleep(device)
+    if napping and not args.ignore_sleep:
+        sys.exit(f'{device.capabilities.name} is not answering for itself '
+                 f'({napping}).\n'
+                 'Move the mouse to wake it, then run again — a sleeping one '
+                 'photographs as a full set of plausible-looking placeholder '
+                 'values.\n'
+                 'If that reading is simply wrong for your mouse, '
+                 '--ignore-sleep takes them anyway.')
+
     app = Adw.Application(
         # Not the GUI's own id.  A second process claiming it just wakes
         # the copy already running in your tray and exits, which looks
@@ -180,6 +258,9 @@ def run(args, wanted):
         Adw.StyleManager.get_default().set_color_scheme(
             Adw.ColorScheme.FORCE_DARK if args.theme == 'dark'
             else Adw.ColorScheme.FORCE_LIGHT)
+        settings = Gtk.Settings.get_default()
+        if settings is not None:
+            settings.set_property('gtk-decoration-layout', DECORATION_LAYOUT)
         win = gui.MainWindow(application=app, device=device)
         state['win'] = win
         win.present()
@@ -317,6 +398,17 @@ def run(args, wanted):
         print('not taken:')
         for n, e in skipped:
             print(f'  {n}: {e}')
+    # It can fall asleep mid-run, which is how the trap in asleep() gets
+    # you even when the mouse was awake at the start: the shots before that
+    # are real and the ones after it aren't, and nothing in the output says
+    # which were which.
+    late = None if napping else asleep(device)
+    if late:
+        print()
+        print(f'!!  the mouse stopped answering for itself partway through '
+              f'({late}).')
+        print('    Anything shot after it fell asleep shows placeholder '
+              'values — wake it and run again.')
     print('09-tray.png is taken by hand — see docs/screenshots.md')
     return 0
 

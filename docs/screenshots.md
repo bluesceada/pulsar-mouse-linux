@@ -24,6 +24,23 @@ and nothing steals your pointer — no desktop session, compositor or panel
 needed. It drives the real window through the same handlers the UI uses,
 waits for the device reads to land, and captures each window by its X11 id.
 
+It also takes your desktop out of the frame, so that two people
+photographing the same mouse get the same pictures: the session variables
+are unset, `XDG_CONFIG_HOME` points at an empty directory, and the title bar
+is fixed to GNOME's single close button. Without that the GUI grows a
+"Hyprland Mouse Settings" group under Hyprland and GTK uses whatever theme,
+font and icon set is around it. One thing the scrub does not reach is **Start
+on Login** — that reads `~/.config/autostart` directly, so it shows your real
+setting.
+
+And it won't photograph a sleeping mouse. A wireless one that has nodded off
+does not stop answering: the dongle replies for it with 125 Hz, every DPI
+stage at its minimum and no battery, and the whole set comes out looking
+plausible and completely wrong. The script reads the battery before the first
+shot and stops if nothing is home, and checks again at the end in case the
+mouse fell asleep partway through — which is easy, since a 30-second sleep
+timer is shorter than a full run.
+
 Install first, on Debian/Ubuntu:
 
 ```sh
@@ -80,6 +97,8 @@ own desktop:
 - **Don't press Apply.** The script never writes to the mouse, and neither
   should you while taking these — a screenshot is not worth changing
   someone's settings over.
+- **Keep the mouse awake** for the whole run — move it just before you start.
+  The script will tell you if it wasn't, but it can only tell you afterwards.
 
 ## If you are handing this to an agent
 
@@ -88,9 +107,10 @@ Everything it needs is the paragraph below plus this file.
 > Regenerate the project's screenshots from my mouse. Read
 > `docs/screenshots.md`, install what it lists, then run
 > `tools/screenshots.py --out screenshots` from the repo root with the mouse
-> plugged in. Report which shots were skipped and why. Take `09-tray.png` by
-> hand per the manual section if the tray is available. Don't touch any
-> setting on the mouse, and don't press Apply in the GUI.
+> plugged in. Report which shots were skipped and why, and anything it said
+> about the mouse sleeping. Take `09-tray.png` by hand per the manual section
+> if the tray is available. Don't touch any setting on the mouse, and don't
+> press Apply in the GUI.
 
 Two failure modes are worth knowing in advance, both learned the hard way:
 
@@ -102,3 +122,7 @@ Two failure modes are worth knowing in advance, both learned the hard way:
 - **Values need time to arrive.** The window reads the mouse on a worker
   thread as it opens, so a capture taken too early shows blanks or
   placeholder text. The script waits; if you write your own, wait too.
+- **A sleeping mouse photographs fine.** It is the dongle answering, not the
+  mouse, and nothing in the images says so. The script's battery check is
+  what catches it; `--ignore-sleep` exists for a mouse whose battery reading
+  is genuinely broken, and skips the only guard there is.

@@ -1323,7 +1323,10 @@ class MainWindow(Adw.ApplicationWindow):
         self._nav_pages = [
             ('home', 'Home', 'go-home-symbolic'),
             ('performance', 'Performance', 'input-mouse-symbolic'),
-            ('customize', 'Customize', 'preferences-desktop-symbolic'),
+            # preferences-system-symbolic, not the -desktop- one: that
+            # name isn't in stock Adwaita, so on a machine without a
+            # fuller icon theme this row drew the missing-image box.
+            ('customize', 'Customize', 'preferences-system-symbolic'),
         ]
         if self._has_power_page:
             self._nav_pages.append(('power', 'Power', 'battery-good-symbolic'))
