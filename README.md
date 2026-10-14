@@ -35,6 +35,12 @@ Wireless (Nordic) protocol based on [python-pulsar-mouse-tool](https://github.co
 |:---:|
 | ![Tray](screenshots/09-tray.png) |
 
+These are the real GUI reading a real mouse, so they only show what that
+mouse can do — a wired one has no Power page, and only some models report
+link quality or have a fan. If yours shows more, `tools/screenshots.py`
+regenerates the whole set in one run; see
+[docs/screenshots.md](docs/screenshots.md).
+
 ## Supported Mice
 
 | Model | Driver | VID:PID | Status |
