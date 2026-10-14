@@ -26,6 +26,7 @@ import importlib
 import pkgutil
 import re
 import sys
+import tempfile
 import tomllib
 from pathlib import Path
 
@@ -223,6 +224,63 @@ def per_driver(classes, check):
     return lines
 
 
+def check_hidraw_matching(modules):
+    """Every event-reporting driver picks its own device's node.
+
+    Built against a fake sysfs tree holding *all* the declared IDs at once,
+    which is the situation no single desk reproduces: a mouse, its dongle,
+    and someone else's Pulsar all plugged in together.  Matching on the VID
+    alone passes with one device present and silently returns a stranger's
+    node with two - the bug behind #17, where a cabled X3's DPI button went
+    unheard because the 1K dongle's interface 1 sorted first.
+
+    The nodes are numbered so the lexicographic sort that bug relied on is
+    still in play (hidraw1 before hidraw11), and each device also gets an
+    input0 node, like real hardware, so a driver that stopped checking the
+    interface would fail here too.
+    """
+    drivers = [(module, cls) for module, classes in
+               ((m, driver_classes(mod)) for m, mod in modules.items())
+               for cls in classes
+               if getattr(cls, '_HIDRAW_INTERFACE', None) is not None]
+    if not drivers:
+        return ['no driver declares _HIDRAW_INTERFACE']
+
+    pairs = []          # (vid, pid) in declaration order, deduplicated
+    for _module, cls in drivers:
+        for ids in cls.capabilities.vid_pid_pairs:
+            if ids not in pairs:
+                pairs.append(ids)
+
+    problems = []
+    with tempfile.TemporaryDirectory() as root:
+        expected = {}
+        for n, (vid, pid) in enumerate(pairs):
+            for iface in (0, 1):
+                node = f'hidraw{n * 2 + iface + 1}'
+                d = Path(root) / node / 'device'
+                d.mkdir(parents=True)
+                (d / 'uevent').write_text(
+                    f'DRIVER=hid-generic\n'
+                    f'HID_ID=0003:{vid:08X}:{pid:08X}\n'
+                    f'HID_NAME=Pulsar test device\n'
+                    f'HID_PHYS=usb-0000:00:00.0-{n + 1}/input{iface}\n')
+                if iface == 1:
+                    expected[(vid, pid)] = '/dev/' + node
+
+        for module, cls in drivers:
+            device = cls.__new__(cls)       # no __init__: no USB, no device
+            found = PulsarDevice.find_hidraw(device, root=root)
+            wanted = {expected[ids] for ids in cls.capabilities.vid_pid_pairs}
+            if found is None:
+                problems.append(f'{module}: found no node among {len(pairs)} devices')
+            elif found not in wanted:
+                problems.append(
+                    f'{module}: picked {found}, which belongs to another '
+                    f'device (wanted one of {sorted(wanted)})')
+    return problems
+
+
 def main() -> int:
     modules = driver_modules()
     pyproject = tomllib.loads((ROOT / 'pyproject.toml').read_text())
@@ -236,6 +294,7 @@ def main() -> int:
         ('entry points match their modules', check_entry_points(modules, entry_points)),
         ('USB IDs are unique and have udev rules', check_usb_ids(modules, udev_text)),
         ('paired drivers name one mouse each', check_model_keys(modules)),
+        ('hidraw nodes are matched on VID and PID', check_hidraw_matching(modules)),
         ('Nordic: every DPI in range encodes and reads back', per_driver(nordic, check_nordic_dpi)),
         ('Nordic: every driver can send a command', per_driver(nordic, check_nordic_dispatch)),
         ('Nordic: no driver claims a signal-quality channel',

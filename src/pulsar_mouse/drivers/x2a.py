@@ -19,7 +19,6 @@ Per-profile settings (profile=1-5): DPI stages, LOD, brightness, LED effect, but
 """
 
 import struct
-import glob
 import os
 import time
 from typing import Optional
@@ -375,33 +374,12 @@ class PulsarX2A(PulsarDevice):
 
     # ── Hidraw support ────────────────────────────────────────────────────
 
-    def find_hidraw(self) -> Optional[str]:
-        """Interface 1's hidraw node, where DPI-button events arrive.
-
-        Matched on VID *and* PID, as nordic.py's is.  The Fusion2 mice and
-        the 1K dongle share VID 0x3710, so with the X3 cabled and its dongle
-        still plugged in, matching the VID alone returned the dongle's node
-        (hidraw1 sorts before hidraw11) and the cabled mouse's DPI presses
-        went unheard after a swap.
-        """
-        wanted = set(self.capabilities.vid_pid_pairs)
-        for path in sorted(glob.glob('/sys/class/hidraw/hidraw*/device/uevent')):
-            try:
-                with open(path) as f:
-                    info = dict(line.split('=', 1)
-                                for line in f.read().splitlines() if '=' in line)
-            except OSError:
-                continue
-            parts = info.get('HID_ID', '').split(':')
-            if len(parts) != 3:
-                continue
-            try:
-                ids = (int(parts[1], 16), int(parts[2], 16))
-            except ValueError:
-                continue
-            if ids in wanted and info.get('HID_PHYS', '').endswith('/input1'):
-                return '/dev/' + path.split('/')[4]
-        return None
+    # DPI-button reports arrive on interface 1.  The match itself (VID
+    # *and* PID, so a dongle sharing the VID can't be picked instead) lives
+    # in PulsarDevice.find_hidraw(), which @f-o-o-g-s fixed here in #17
+    # before it was hoisted - the Xlite v4, X3 and 1K dongle drivers all
+    # inherit this and had the same bug.
+    _HIDRAW_INTERFACE = '/input1'
 
     def parse_hidraw_event(self, data: bytes) -> Optional[dict]:
         if len(data) >= 7 and data[0] == 0x05 and data[1] == 0x05:

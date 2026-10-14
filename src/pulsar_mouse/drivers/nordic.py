@@ -35,7 +35,6 @@ Status: UNTESTED — protocol assumed compatible with X2A Wireless based on
 """
 
 import ctypes
-import glob
 import os
 import select
 import struct
@@ -993,33 +992,12 @@ class PulsarNordic(PulsarDevice):
 
     # ── Unprompted reports ───────────────────────────────────────────────
 
-    def find_hidraw(self) -> Optional[str]:
-        """The config interface's hidraw node, where the mouse's own events
-        arrive.  Matched on VID *and* PID: with a cabled mouse and its dongle
-        both plugged in, four Pulsar devices' nodes are present at once, and
-        matching the VID alone picks whichever sorts first.
-
-        The node disappears while anything claims that interface over USB,
-        this driver included, so a listener has to cope with it coming and
-        going rather than opening it once.
-        """
-        wanted = {(vid, pid) for vid, pid in self.capabilities.vid_pid_pairs}
-        for path in sorted(glob.glob('/sys/class/hidraw/hidraw*/device/uevent')):
-            try:
-                info = dict(line.split('=', 1)
-                            for line in open(path).read().splitlines() if '=' in line)
-            except OSError:
-                continue
-            parts = info.get('HID_ID', '').split(':')
-            if len(parts) != 3:
-                continue
-            try:
-                ids = (int(parts[1], 16), int(parts[2], 16))
-            except ValueError:
-                continue
-            if ids in wanted and info.get('HID_PHYS', '').endswith('/input1'):
-                return '/dev/' + path.split('/')[4]
-        return None
+    # The config interface's own node, where this family's unprompted
+    # reports arrive.  It disappears while anything claims that interface
+    # over USB, this driver included, so a listener has to cope with it
+    # coming and going rather than opening it once.  See
+    # PulsarDevice.find_hidraw() for why the match includes the PID.
+    _HIDRAW_INTERFACE = '/input1'
 
     def parse_hidraw_event(self, data: bytes) -> Optional[dict]:
         if (len(data) != self.capabilities.report_size or data[0] != 0x08

@@ -5,6 +5,8 @@ Each mouse model implements a PulsarDevice subclass with its own protocol.
 The GUI and CLI use DeviceCapabilities to adapt dynamically to the hardware.
 """
 
+import glob
+import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Optional
@@ -249,8 +251,49 @@ class PulsarDevice(ABC):
 
     # ── Hidraw (for tray / DPI notifications) ─────────────────────────────
 
-    def find_hidraw(self) -> Optional[str]:
-        """Return /dev/hidrawN path for DPI event listening, or None."""
+    # The interface whose hidraw node carries this mouse's unprompted
+    # reports, as the suffix its HID_PHYS ends in.  None means the driver
+    # has no such node, which is the default: find_hidraw() then returns
+    # None and the listener never starts.
+    _HIDRAW_INTERFACE: Optional[str] = None
+
+    def find_hidraw(self, root: str = '/sys/class/hidraw') -> Optional[str]:
+        """The /dev/hidrawN node this mouse's own reports arrive on.
+
+        Matched on VID *and* PID.  Several Pulsar devices are often plugged
+        in at once - a mouse and its dongle, or two mice - and they share a
+        VID, so matching on that alone returns whichever node sorts first.
+        That is a real bug twice over: @iamtherobin saw it with a cabled
+        mouse beside its dongle (#7), and @f-o-o-g-s found the X3's DPI
+        button going unheard because interface 1 of the 1K dongle
+        (hidraw1) was picked over the mouse's own (hidraw11) (#17).
+
+        `root` exists so tools/check-drivers.py can point this at a sysfs
+        tree it built, including that collision - no amount of hardware on
+        one desk reproduces every pairing.
+        """
+        if self._HIDRAW_INTERFACE is None:
+            return None
+        wanted = set(self.capabilities.vid_pid_pairs)
+        for path in sorted(glob.glob(os.path.join(root, 'hidraw*', 'device',
+                                                  'uevent'))):
+            try:
+                with open(path) as f:
+                    info = dict(line.split('=', 1)
+                                for line in f.read().splitlines() if '=' in line)
+            except OSError:
+                continue
+            parts = info.get('HID_ID', '').split(':')
+            if len(parts) != 3:
+                continue
+            try:
+                ids = (int(parts[1], 16), int(parts[2], 16))
+            except ValueError:
+                continue
+            if (ids in wanted
+                    and info.get('HID_PHYS', '').endswith(self._HIDRAW_INTERFACE)):
+                return '/dev/' + os.path.basename(
+                    os.path.dirname(os.path.dirname(path)))
         return None
 
     def parse_hidraw_event(self, data: bytes) -> Optional[dict]:
