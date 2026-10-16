@@ -82,6 +82,34 @@ class Fusion2Power:
             'battery_mv': None,
         }
 
+    # ── Pushed power reports ──────────────────────────────────────────────
+
+    def parse_hidraw_event(self, data: bytes) -> Optional[dict]:
+        """`05 07 <charging> <percent> 01`, sent without being asked.
+
+        The same three fields get_power() asks for, arriving on their own:
+        byte 2 is the charging flag and byte 3 the percentage, plain hex,
+        not BCD.  @f-o-o-g-s caught it twice - in a fresh hidraw log where
+        the dongle sent `05 07 00 50 01` (80%) just after the mouse
+        reconnected and the mouse on its cable sent `05 07 01 51 01` (81%,
+        charging), and again in USBPcap captures from a year earlier, where
+        0x54 and 0x53 matched the battery register read in the same capture
+        (#21).  Both percentages matched what get_power() said at the time,
+        and the flag matched which end the cable was in.
+
+        Used alongside the minute-long battery poll rather than instead of
+        it: nobody knows yet how often the mouse volunteers this, and a
+        reading that silently stops updating is worse than one that is up
+        to a minute old.
+        """
+        if len(data) >= 4 and data[0] == 0x05 and data[1] == 0x07:
+            return {
+                'battery_percent': data[3],
+                'power_connected': bool(data[2]),
+                'battery_mv': None,
+            }
+        return super().parse_hidraw_event(data)
+
     def get_power_saving_timeout(self) -> int:
         # cat=0x08/reg=0x85(=0x05|0x80)/sub=0x03, no payload: reply bytes
         # [7:9] are the sleep timer in seconds, uint16 little-endian.  In the

@@ -436,6 +436,7 @@ class PulsarMouseApp(Adw.Application):
         # _schedule_event_refresh() and _EVENT_COALESCE_MS.
         self._event_refresh_id = 0
         self._event_pending_profile_change = False
+        self._power_state = {}       # merged view of polled and pushed power
         self._menu_server = None     # rebuilt when the mouse changes connection
         self._device = None  # PulsarDevice instance
 
@@ -802,6 +803,13 @@ class PulsarMouseApp(Adw.Application):
         return True  # repeat
 
     def _set_battery_label(self, pwr):
+        # A poll carries everything get_power() can read; a pushed report
+        # carries only what the mouse chose to send.  Merging rather than
+        # replacing keeps the state file below whole - an external reader
+        # shouldn't watch low_power_threshold disappear and come back
+        # depending on which one arrived last.
+        self._power_state = {**self._power_state, **pwr}
+        pwr = self._power_state
         pct = pwr['battery_percent']
         charging = pwr['power_connected']
         label = ' (charging)' if charging else ''
@@ -912,6 +920,14 @@ class PulsarMouseApp(Adw.Application):
                         # _schedule_event_refresh().
                         GLib.idle_add(self._schedule_event_refresh,
                                       'profile_changed' in event)
+                    elif 'battery_percent' in event:
+                        # Volunteered by the mouse (#21).  Cheaper and
+                        # faster than the minute poll - no USB read, so
+                        # nothing takes this node away and nothing nudges
+                        # a mouse that is trying to sleep - but the poll
+                        # stays, because how often this arrives is not
+                        # known.
+                        GLib.idle_add(self._set_battery_label, event)
                     elif 'signal_percent' in event:
                         now = time.monotonic()
                         if now - last_signal_update >= _SIGNAL_UPDATE_INTERVAL:
