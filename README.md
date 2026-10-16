@@ -371,7 +371,7 @@ Checksum: bytes[62:64] = LE uint16(sum(bytes[0:62])).
 - [@packerlschupfer](https://github.com/packerlschupfer) — Original creator and maintainer of pulsar-mouse-linux
 - [@harveywuk](https://github.com/harveywuk) — Feinmann 8K/FO1 driver, multi-profile support, button remapping, desktop pointer-settings integration, Nix flake, GUI redesign, protocol reliability fixes (stale-reply guard, LED read-modify-write, RF settle timing)
 - [@variasjon](https://github.com/variasjon) — Xlite v4 wireless dongle driver
-- [@f-o-o-g-s](https://github.com/f-o-o-g-s) — 1K dongle battery, charging, link quality and paired-mouse identity, from Fusion2 captures and confirmed on a Pulsar X3; hidraw nodes matched on PID so a dongle can't be mistaken for the mouse beside it; the GUI's event listeners; the screenshot set, taken from an X3 on the dongle
+- [@f-o-o-g-s](https://github.com/f-o-o-g-s) — 1K dongle battery, charging, link quality and paired-mouse identity, from Fusion2 captures and confirmed on a Pulsar X3; hidraw nodes matched on PID so a dongle can't be mistaken for the mouse beside it; the GUI's event listeners; the timing that showed a connection change took 96 seconds to reach the tray and 74 ms to reach the dongle; the screenshot set, taken from an X3 on the dongle
 - [@mwsmws22](https://github.com/mwsmws22) — Nordic keyboard shortcut fix (shortcut-table writes, Xlite V3 button mapping)
 - [@Scout339](https://github.com/Scout339) — Logo design, wireless mouse testing
 - [@iamtherobin](https://github.com/iamtherobin) — Pulsar Fusion USB captures and screen recordings that the X2 CrazyLight drivers (dongle and wired) were decoded from
