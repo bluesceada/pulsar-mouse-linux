@@ -136,6 +136,14 @@ _EVENT_COALESCE_MS = 300
 # it short, since finding the node is a couple of cheap sysfs reads.
 _NODE_WAIT = 0.3
 
+# How long the event listener keeps looking for a swap after its own device
+# leaves the bus, and how often - see
+# PulsarMouseApp._swap_check_on_absence().  Long enough to cover a cable
+# going into the socket the dongle just came out of, short enough that a
+# mouse simply put away stops costing a bus scan every second.
+_SWAP_WATCH_WINDOW = 10.0
+_SWAP_WATCH_INTERVAL = 1.0
+
 
 def _dont_edit_on_scroll(widget):
     """Stop a stray wheel turn over `widget` from changing its value.
@@ -437,6 +445,11 @@ class PulsarMouseApp(Adw.Application):
         self._event_refresh_id = 0
         self._event_pending_profile_change = False
         self._power_state = {}       # merged view of polled and pushed power
+        # Set of one: the device the listener has seen leave the bus, and
+        # when - see _swap_check_on_absence().
+        self._absent_device = None
+        self._absent_since = 0.0
+        self._absent_last_check = 0.0
         self._menu_server = None     # rebuilt when the mouse changes connection
         self._device = None  # PulsarDevice instance
 
@@ -754,6 +767,18 @@ class PulsarMouseApp(Adw.Application):
             self._menu_server.set_root(self._build_tray_menu(device))
         self._battery_text = self._conn_text = None
         self._last_signal_percent = None
+        # The reading belonged to the half that left, and so does the state
+        # file: @f-o-o-g-s measured 96 seconds of "84% charging" in it after
+        # the cable came out, because nothing cleared it and the mouse was
+        # asleep by the time the dongle was adopted (#21).  The file goes
+        # rather than being rewritten half-empty - no reading at all is a
+        # state every reader of it already has to handle, since that is what
+        # it looks like before the first poll.
+        self._power_state = {}
+        try:
+            os.unlink(self._BATTERY_STATE_PATH)
+        except OSError:
+            pass        # never written, or not ours to remove
         self._read_initial_state()
 
         # The window is built from capabilities too, so it has to be built
@@ -764,20 +789,60 @@ class PulsarMouseApp(Adw.Application):
             self._win = None
             GLib.idle_add(self.activate)
 
-    def _swap_check_on_close(self) -> bool:
-        """Look for a swap once the window has closed to the tray.
+    def _swap_check_idle(self) -> bool:
+        """One swap check from an idle callback, for callers off the main thread.
 
-        @iamtherobin's point in #11: opening the window is a good moment to
-        look, and so is closing it - the tray is what's left behind, and it
-        should not go on describing a connection that has gone.  Without
-        this the tray carried the old half until the next battery poll, up
-        to a minute later.
+        Two of them.  Closing the window: @iamtherobin's point in #11 was
+        that opening the window is a good moment to look, and so is closing
+        it - the tray is what is left behind, and it should not go on
+        describing a connection that has gone.  And the event listener,
+        which notices its device leaving the bus long before the timer does
+        - see _swap_check_on_absence().
 
-        Runs from an idle callback so the window is gone before the USB
-        lock wait (_SWAP_LOCK_WAIT) can hold anything up.
+        An idle callback, so the window is gone (and the listener thread is
+        not the one blocking) before the USB lock wait (_SWAP_LOCK_WAIT) can
+        hold anything up.  Returns False rather than _follow_device_swap()'s
+        own bool: True from an idle callback means "call me again", which
+        would turn a successful swap into a busy loop.
         """
         self._follow_device_swap()
         return False        # one-shot
+
+    def _swap_check_on_absence(self, device) -> None:
+        """Check for a swap as soon as `device` leaves the bus.
+
+        The battery timer notices a swap within a minute, which is fine for
+        a reading and much too slow for the charging flag: @f-o-o-g-s
+        measured 96 seconds between the cable coming out and the tray saying
+        so, while the dongle had announced the link in 74 ms (#21).  The
+        listener is the cheapest place to notice, because it is already
+        awake and its node is the first thing to go.
+
+        A missing node is not the signal, though - our own battery poll
+        takes it away every minute, and so does the read after a DPI press -
+        so this asks the bus instead.  It keeps asking for a few seconds
+        rather than once, since the other half usually arrives a moment
+        after the first one leaves (and @f-o-o-g-s's one-port case has it
+        arrive in the same socket), then goes quiet and leaves the timer to
+        it: a mouse that has simply been put away should not cost a USB scan
+        a second for the rest of the session.
+
+        Called from the listener thread; the check itself goes through an
+        idle callback because it may open the dongle under the USB lock.
+        """
+        if device_present(device):
+            self._absent_device = None
+            return
+        now = time.monotonic()
+        if self._absent_device is not device:
+            self._absent_device = device
+            self._absent_since = now
+            self._absent_last_check = 0.0
+        if (now - self._absent_since > _SWAP_WATCH_WINDOW
+                or now - self._absent_last_check < _SWAP_WATCH_INTERVAL):
+            return
+        self._absent_last_check = now
+        GLib.idle_add(self._swap_check_idle)
 
     def _refresh_battery(self):
         if self._follow_device_swap():
@@ -893,6 +958,7 @@ class PulsarMouseApp(Adw.Application):
                 continue
             path = device.find_hidraw()
             if not path:
+                self._swap_check_on_absence(device)
                 time.sleep(_NODE_WAIT)
                 continue
             try:
@@ -1294,10 +1360,10 @@ class MainWindow(Adw.ApplicationWindow):
         # own comment above for why that used to be here and didn't work.
         self._home_hidraw_stop = True
         # The tray outlives this window, so hand the swap check over on the
-        # way out - see PulsarMouseApp._swap_check_on_close().
+        # way out - see PulsarMouseApp._swap_check_idle().
         app = self.get_application()
         if app is not None:
-            GLib.idle_add(app._swap_check_on_close)
+            GLib.idle_add(app._swap_check_idle)
         return False  # False = allow the close to proceed as normal
 
     def _build_ui(self):

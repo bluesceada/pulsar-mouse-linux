@@ -42,27 +42,44 @@ def device_present(device: PulsarDevice) -> bool:
                for vid, pid in device.capabilities.vid_pid_pairs)
 
 
+# What a shared dongle last answered, keyed by its own (vid, pid) pairs.  A
+# dongle that has left the bus cannot be asked any more, and with one port to
+# spare that is exactly when the question matters: @f-o-o-g-s pulled the
+# dongle out and put the cable in the same socket, and the app had nothing
+# left to ask which mouse the cable was, so it sat on the missing dongle
+# until that went back in (#11).  The last answer serves - it names the mouse
+# that was on the other end moments ago - and it cannot adopt the wrong
+# mouse, because a cabled driver still has to claim that exact PID.
+_CARRIED_CACHE: dict[tuple, tuple[int, int]] = {}
+
+
 def _carried_mouse(dongle: PulsarDevice) -> tuple[int, int] | None:
     """The cabled (vid, pid) of the mouse a shared dongle is paired with.
 
-    None when the dongle cannot say.  Opens the dongle for the one read and
-    closes it again, so the caller must not be holding it open; the GUI
-    takes its USB lock around find_sibling() for that reason.
+    Opens the dongle for the one read and closes it again, so the caller
+    must not be holding it open; the GUI takes its USB lock around
+    find_sibling() for that reason.
+
+    Falls back to what this dongle last said when it cannot be asked now -
+    unplugged, or busy - and returns None only when it has never answered.
     """
+    key = tuple(dongle.capabilities.vid_pid_pairs)
     try:
         dongle.open()
     except Exception:
-        return None
+        return _CARRIED_CACHE.get(key)
     try:
         ids = dongle.get_connected_mouse()
-        return (ids['vid'], ids['pid'])
+        carried = (ids['vid'], ids['pid'])
     except Exception:
-        return None
+        return _CARRIED_CACHE.get(key)
     finally:
         try:
             dongle.close()
         except Exception:
             pass
+    _CARRIED_CACHE[key] = carried
+    return carried
 
 
 def find_sibling(device: PulsarDevice) -> PulsarDevice | None:
