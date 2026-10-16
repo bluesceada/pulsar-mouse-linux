@@ -53,6 +53,30 @@ def device_present(device: PulsarDevice) -> bool:
 _CARRIED_CACHE: dict[tuple, tuple[int, int]] = {}
 
 
+def remember_connected_mouse(dongle: PulsarDevice) -> tuple[int, int] | None:
+    """Record which mouse an **already open** shared dongle carries.
+
+    find_sibling() only asks a dongle when a cabled mouse is already on the
+    bus to match the answer against, so a session that starts on the dongle
+    alone has nothing remembered by the time the dongle leaves - and that is
+    precisely the one-port case the cache exists for.  @f-o-o-g-s measured it
+    going wrong: four checks over the ten seconds after the dongle came out
+    all saw the cabled X3 and all came back empty (#11).
+
+    So the GUI asks once, on the read it already does when a device is
+    adopted.  The answer comes out of the dongle's pairing memory - about a
+    millisecond, and it answers whether the mouse is awake, asleep or on its
+    cable.  None if it will not say.
+    """
+    try:
+        ids = dongle.get_connected_mouse()
+    except Exception:
+        return None
+    carried = (ids['vid'], ids['pid'])
+    _CARRIED_CACHE[tuple(dongle.capabilities.vid_pid_pairs)] = carried
+    return carried
+
+
 def _carried_mouse(dongle: PulsarDevice) -> tuple[int, int] | None:
     """The cabled (vid, pid) of the mouse a shared dongle is paired with.
 

@@ -50,7 +50,7 @@ except ValueError as missing:
 from gi.repository import Gtk, Adw, GLib, Gio, Gdk, Dbusmenu
 
 from pulsar_mouse import (find_device, scan_devices, device_present,
-                          find_sibling, __version__)
+                          find_sibling, remember_connected_mouse, __version__)
 
 
 def _power_saving_supported(device) -> bool:
@@ -143,6 +143,12 @@ _NODE_WAIT = 0.3
 # mouse simply put away stops costing a bus scan every second.
 _SWAP_WATCH_WINDOW = 10.0
 _SWAP_WATCH_INTERVAL = 1.0
+
+# How long the listener waits between looks once its device has been off the
+# bus for longer than that window.  Nothing is being chased any more, so the
+# 0.3 s node wait is just a bus query three times a second for as long as the
+# mouse is in a drawer - cheap (1.4 ms, measured) but pointless.
+_ABSENT_WAIT = 2.0
 
 
 def _dont_edit_on_scroll(widget):
@@ -666,6 +672,17 @@ class PulsarMouseApp(Adw.Application):
                                     pwr['low_power_threshold'] = device.get_low_power_threshold()
                             except Exception:
                                 pass
+                        if hasattr(device, 'get_connected_mouse'):
+                            # While it is still here to ask: find_sibling()
+                            # only asks a dongle when a cabled mouse is on
+                            # the bus to match the answer against, so
+                            # without this a session that starts on the
+                            # dongle alone has nothing remembered when the
+                            # dongle leaves - @f-o-o-g-s's one-port case
+                            # (#11).  One register read out of pairing
+                            # memory, answered whether the mouse is awake or
+                            # not.
+                            remember_connected_mouse(device)
                     finally:
                         device.close()
                 dpi = dpi_info['stages'][dpi_info['active'] - 1][0]
@@ -674,9 +691,54 @@ class PulsarMouseApp(Adw.Application):
                               dpi_info['active'], profile)
                 if pwr is not None:
                     GLib.idle_add(self._set_battery_label, pwr)
+                elif hasattr(device, 'get_power'):
+                    GLib.timeout_add(int(self._POWER_RETRY_DELAY * 1000),
+                                     self._retry_power_read, device,
+                                     self._POWER_RETRY_TRIES)
             except Exception:
                 pass
         threading.Thread(target=_read, daemon=True).start()
+
+    # A mouse that has just changed connection is often not ready for the
+    # first power read.  @f-o-o-g-s measured get_power() raising 0.45 s after
+    # the cable came out and 1.1 s after the cabled X3 enumerated, which left
+    # the tray on "Battery: -" with no state file until the next minute tick,
+    # and on a mouse that pushes its own report, a file rebuilt from the push
+    # alone - no low_power_threshold in it (#21).  So the read gets another
+    # couple of goes.  Kept short and few on purpose: the other reason it
+    # fails is a mouse that has gone to sleep, and that one should be left to
+    # the minute poll rather than prodded.
+    _POWER_RETRY_DELAY = 1.5
+    _POWER_RETRY_TRIES = 2
+
+    def _retry_power_read(self, device, tries_left: int) -> bool:
+        """Another go at the battery after a read that found nobody home.
+
+        Feeds _set_battery_label() like any other reading, so the tray, the
+        state file and an open window's Home row all catch up together.
+        """
+        if device is not self._device:
+            return False        # moved on again; the new half has its own read
+
+        def _read():
+            try:
+                with _USB_LOCK:
+                    device.open()
+                    try:
+                        pwr = device.get_power()
+                        if hasattr(device, 'get_low_power_threshold'):
+                            pwr['low_power_threshold'] = device.get_low_power_threshold()
+                    finally:
+                        device.close()
+            except Exception:
+                if tries_left > 1 and device is self._device:
+                    GLib.timeout_add(int(self._POWER_RETRY_DELAY * 1000),
+                                     self._retry_power_read, device,
+                                     tries_left - 1)
+                return
+            GLib.idle_add(self._set_battery_label, pwr)
+        threading.Thread(target=_read, daemon=True).start()
+        return False        # one-shot
 
     # How long _follow_device_swap() will wait for the USB lock before
     # giving up and looking again next time.  It runs on the GTK main
@@ -829,20 +891,24 @@ class PulsarMouseApp(Adw.Application):
 
         Called from the listener thread; the check itself goes through an
         idle callback because it may open the dongle under the USB lock.
+        Returns True once the device has been gone longer than the window,
+        which is the listener's cue to stop looking so often.
         """
         if device_present(device):
             self._absent_device = None
-            return
+            return False
         now = time.monotonic()
         if self._absent_device is not device:
             self._absent_device = device
             self._absent_since = now
             self._absent_last_check = 0.0
-        if (now - self._absent_since > _SWAP_WATCH_WINDOW
-                or now - self._absent_last_check < _SWAP_WATCH_INTERVAL):
-            return
+        if now - self._absent_since > _SWAP_WATCH_WINDOW:
+            return True         # gone for good as far as this is concerned
+        if now - self._absent_last_check < _SWAP_WATCH_INTERVAL:
+            return False
         self._absent_last_check = now
         GLib.idle_add(self._swap_check_idle)
+        return False
 
     def _refresh_battery(self):
         if self._follow_device_swap():
@@ -958,8 +1024,8 @@ class PulsarMouseApp(Adw.Application):
                 continue
             path = device.find_hidraw()
             if not path:
-                self._swap_check_on_absence(device)
-                time.sleep(_NODE_WAIT)
+                gone = self._swap_check_on_absence(device)
+                time.sleep(_ABSENT_WAIT if gone else _NODE_WAIT)
                 continue
             try:
                 fd = os.open(path, os.O_RDONLY)
