@@ -150,6 +150,11 @@ _SWAP_WATCH_INTERVAL = 1.0
 # mouse is in a drawer - cheap (1.4 ms, measured) but pointless.
 _ABSENT_WAIT = 2.0
 
+# How many goes the read done on adoption gets in all - the first plus two
+# more, spaced by PulsarMouseApp._READ_RETRY_DELAY.  See the outer except in
+# _read_initial_state().
+_INITIAL_READ_TRIES = 3
+
 
 def _dont_edit_on_scroll(widget):
     """Stop a stray wheel turn over `widget` from changing its value.
@@ -635,7 +640,7 @@ class PulsarMouseApp(Adw.Application):
         GLib.timeout_add_seconds(60, self._refresh_battery)
         return False
 
-    def _read_initial_state(self):
+    def _read_initial_state(self, tries_left: int = _INITIAL_READ_TRIES):
         device = self._device
 
         def _read():
@@ -692,12 +697,28 @@ class PulsarMouseApp(Adw.Application):
                 if pwr is not None:
                     GLib.idle_add(self._set_battery_label, pwr)
                 elif hasattr(device, 'get_power'):
-                    GLib.timeout_add(int(self._POWER_RETRY_DELAY * 1000),
+                    GLib.timeout_add(int(self._READ_RETRY_DELAY * 1000),
                                      self._retry_power_read, device,
                                      self._POWER_RETRY_TRIES)
             except Exception:
-                pass
+                # Not only the battery: the first command of all can be the
+                # one that finds nobody home, and then this read loses the
+                # DPI and Hz label and the dongle's answer along with the
+                # reading.  @f-o-o-g-s caught that too - the absence check
+                # can adopt the dongle a few hundred milliseconds before the
+                # dongle's own link to the mouse comes up, and then
+                # get_polling_rate() is what raises (#21).  So the whole read
+                # is worth repeating, not just its last part.
+                if tries_left > 1 and device is self._device:
+                    GLib.timeout_add(int(self._READ_RETRY_DELAY * 1000),
+                                     self._retry_initial_read, device,
+                                     tries_left - 1)
         threading.Thread(target=_read, daemon=True).start()
+
+    def _retry_initial_read(self, device, tries_left: int) -> bool:
+        if device is self._device:
+            self._read_initial_state(tries_left)
+        return False        # one-shot
 
     # A mouse that has just changed connection is often not ready for the
     # first power read.  @f-o-o-g-s measured get_power() raising 0.45 s after
@@ -708,7 +729,7 @@ class PulsarMouseApp(Adw.Application):
     # couple of goes.  Kept short and few on purpose: the other reason it
     # fails is a mouse that has gone to sleep, and that one should be left to
     # the minute poll rather than prodded.
-    _POWER_RETRY_DELAY = 1.5
+    _READ_RETRY_DELAY = 1.5
     _POWER_RETRY_TRIES = 2
 
     def _retry_power_read(self, device, tries_left: int) -> bool:
@@ -732,7 +753,7 @@ class PulsarMouseApp(Adw.Application):
                         device.close()
             except Exception:
                 if tries_left > 1 and device is self._device:
-                    GLib.timeout_add(int(self._POWER_RETRY_DELAY * 1000),
+                    GLib.timeout_add(int(self._READ_RETRY_DELAY * 1000),
                                      self._retry_power_read, device,
                                      tries_left - 1)
                 return
