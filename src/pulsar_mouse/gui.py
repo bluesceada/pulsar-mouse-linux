@@ -868,6 +868,9 @@ class PulsarMouseApp(Adw.Application):
         # again rather than reloaded.  Only when one is open: closing to the
         # tray and swapping should not put a window back on screen.
         if self.get_windows() and self._win is not None:
+            # destroy() does not emit "close-request", so nothing in the
+            # window hears that it should stop - hence the explicit call.
+            self._win._stop_listeners()
             self._win.destroy()
             self._win = None
             GLib.idle_add(self.activate)
@@ -1441,17 +1444,40 @@ class MainWindow(Adw.ApplicationWindow):
         GLib.idle_add(self._refresh_firmware_version)
 
     def _on_close_request(self, _win):
-        # Just a flag - _home_hidraw_listener polls it via select()'s
-        # timeout (at most ~1s latency) rather than this thread trying to
-        # directly unblock or close the listener's fd - see this class's
-        # own comment above for why that used to be here and didn't work.
-        self._home_hidraw_stop = True
+        self._stop_listeners()
         # The tray outlives this window, so hand the swap check over on the
         # way out - see PulsarMouseApp._swap_check_idle().
         app = self.get_application()
         if app is not None:
             GLib.idle_add(app._swap_check_idle)
         return False  # False = allow the close to proceed as normal
+
+    def _stop_listeners(self):
+        """Stop this window's event listener, and any dialog's along with it.
+
+        Just a flag - _home_hidraw_listener polls it via select()'s timeout
+        (at most ~1s latency) rather than another thread trying to unblock
+        or close the listener's fd; see this class's own comment above for
+        why that used to live in the close handler and didn't work.
+
+        Called from the close handler and, because destroy() does not emit
+        "close-request", by _adopt_device() before it throws the window away
+        for a swap.  Without that second caller nothing stopped: @f-o-o-g-s
+        found four fds open on the dongle's node after three swaps - the
+        tray's listener, this window's, and two belonging to windows that
+        had already been destroyed, all still parsing reports until the
+        dongle left the bus (#21).
+
+        Dialogs are the same leak one level down, and worse: destroying a
+        parent leaves its transient dialog on screen (verified, GTK4 does
+        not take it with the parent), bound to a device that may have gone.
+        They are closed rather than flagged, so each one's own
+        close-request handler stops its own listener.
+        """
+        for win in Gtk.Window.get_toplevels():
+            if win.get_transient_for() is self:
+                win.close()
+        self._home_hidraw_stop = True
 
     def _build_ui(self):
         caps = self._caps
