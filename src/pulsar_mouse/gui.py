@@ -2373,38 +2373,50 @@ X-GNOME-Autostart-enabled=true
             return
         if not _reports_events(device):
             return
-        # Waits for the node rather than giving up if it isn't there yet -
-        # see _reports_events() for what takes it away at startup.
-        path = None
-        while not self._home_hidraw_stop and path is None:
-            path = device.find_hidraw()
-            if path is None:
-                time.sleep(1.0)
-        if path is None:
-            return
-        try:
-            fd = os.open(path, os.O_RDONLY)
-        except OSError:
-            return
+        # Waits for the node and reopens it, rather than giving up - see
+        # _reports_events() for what takes it away at startup, and note that
+        # the mouse leaving the bus does the same thing.  This one used to
+        # open once and return on the first read error, which the other two
+        # listeners (the tray's and the Input Test dialog's) both learned not
+        # to do: @f-o-o-g-s moved the dongle to another port and the Signal
+        # row on Home stopped for the life of the window, while those two
+        # came back on their own (#21).
         last_update = 0.0
-        try:
-            while not self._home_hidraw_stop:
-                ready, _w, _x = select.select([fd], [], [], 1.0)
-                if not ready:
-                    continue  # timeout - just a chance to re-check the stop flag
-                data = os.read(fd, 256)
-                if not data:
-                    break
-                event = device.parse_hidraw_event(data)
-                if event and 'signal_percent' in event:
-                    now = time.monotonic()
-                    if now - last_update >= _SIGNAL_UPDATE_INTERVAL:
-                        last_update = now
-                        GLib.idle_add(self._set_home_signal, event['signal_percent'])
-        except OSError:
-            pass
-        finally:
-            os.close(fd)
+        while not self._home_hidraw_stop:
+            path = device.find_hidraw()
+            if not path:
+                self._sleep_unless_stopped(1.0)
+                continue
+            try:
+                fd = os.open(path, os.O_RDONLY)
+            except OSError:
+                self._sleep_unless_stopped(1.0)
+                continue
+            try:
+                while not self._home_hidraw_stop:
+                    ready, _w, _x = select.select([fd], [], [], 1.0)
+                    if not ready:
+                        continue  # timeout - a chance to re-check the stop flag
+                    data = os.read(fd, 256)
+                    if not data:
+                        break       # node gone; find it again
+                    event = device.parse_hidraw_event(data)
+                    if event and 'signal_percent' in event:
+                        now = time.monotonic()
+                        if now - last_update >= _SIGNAL_UPDATE_INTERVAL:
+                            last_update = now
+                            GLib.idle_add(self._set_home_signal, event['signal_percent'])
+            except OSError:
+                pass        # interface claimed elsewhere; wait and reopen
+            finally:
+                os.close(fd)
+            self._sleep_unless_stopped(1.0)
+
+    def _sleep_unless_stopped(self, seconds):
+        """Sleep, but keep _home_hidraw_stop as responsive as select()'s timeout."""
+        deadline = time.monotonic() + seconds
+        while not self._home_hidraw_stop and time.monotonic() < deadline:
+            time.sleep(0.1)
 
     def _set_home_signal(self, pct):
         if self._home_signal_row is None:
