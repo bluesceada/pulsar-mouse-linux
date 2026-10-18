@@ -2407,7 +2407,15 @@ X-GNOME-Autostart-enabled=true
                             last_update = now
                             GLib.idle_add(self._set_home_signal, event['signal_percent'])
             except OSError:
-                pass        # interface claimed elsewhere; wait and reopen
+                # Both ways the node can end: something else claiming the
+                # interface, and - the common one - the mouse leaving the
+                # bus.  hidraw_read() returns -EIO once the device is gone
+                # and hidraw_poll() sets EPOLLERR|EPOLLHUP, so select()
+                # wakes and the read raises rather than returning empty;
+                # @f-o-o-g-s logged EIO here on both listeners at both
+                # unplugs (#21).  The empty-read break above is the rarer
+                # path, not the main one.
+                pass
             finally:
                 os.close(fd)
             self._sleep_unless_stopped(1.0)
@@ -3684,7 +3692,15 @@ class InputTestDialog(Adw.Window):
                     elif 'dpi_changed' in event:
                         GLib.idle_add(self._on_dpi_event, None, None)
             except OSError:
-                pass        # interface claimed elsewhere; wait and reopen
+                # Both ways the node can end: something else claiming the
+                # interface, and - the common one - the mouse leaving the
+                # bus.  hidraw_read() returns -EIO once the device is gone
+                # and hidraw_poll() sets EPOLLERR|EPOLLHUP, so select()
+                # wakes and the read raises rather than returning empty;
+                # @f-o-o-g-s logged EIO here on both listeners at both
+                # unplugs (#21).  The empty-read break above is the rarer
+                # path, not the main one.
+                pass
             finally:
                 os.close(fd)
             self._sleep_unless_stopped(1.0)
