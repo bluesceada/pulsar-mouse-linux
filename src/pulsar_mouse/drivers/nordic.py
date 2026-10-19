@@ -549,9 +549,16 @@ class PulsarNordic(PulsarDevice):
             resp = self._recv()
             if len(resp) > 1 and resp[1] == cmd and self._echoes(pkt, resp):
                 return resp
+        # Say what did arrive, not just that nothing fit.  The echo check
+        # above is confirmed on the Areson (@dbergPROTAKT, #23) and assumed
+        # for the rest of the family; if a model answers a memory read
+        # without echoing the address, this message is what distinguishes
+        # that from a mouse that simply said nothing.
         raise RuntimeError(
             f"received no response for command 0x{cmd:02x} after "
-            f"{self._MAX_STALE_REPLIES + 1} unrelated reports")
+            f"{self._MAX_STALE_REPLIES + 1} unrelated reports; "
+            f"last was {resp[:6].hex(' ')} "
+            f"(asked for {pkt[:6].hex(' ')})")
 
     def _drain(self):
         """Discard unsolicited replies.
