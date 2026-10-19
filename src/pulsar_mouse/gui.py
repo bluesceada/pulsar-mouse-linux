@@ -139,15 +139,22 @@ _NODE_WAIT = 0.3
 # How long the event listener keeps looking for a swap after its own device
 # leaves the bus, and how often - see
 # PulsarMouseApp._swap_check_on_absence().  Long enough to cover a cable
-# going into the socket the dongle just came out of, short enough that a
-# mouse simply put away stops costing a bus scan every second.
+# going into the socket the dongle just came out of.
 _SWAP_WATCH_WINDOW = 10.0
 _SWAP_WATCH_INTERVAL = 1.0
 
+# And how often after that, for as long as it stays away.  It used to stop
+# at the window, which assumed the other half arrives within seconds of the
+# first one leaving or not at all: @dbergPROTAKT took the Areson's dongle
+# out, plugged the cable in at a human pace, and waited ~70 s for the app to
+# follow - the minute timer, because the watch had already given up (#13).
+# A swap is one plug in each hand; there is no reason it has to be quick.
+_SWAP_SETTLED_INTERVAL = 5.0
+
 # How long the listener waits between looks once its device has been off the
-# bus for longer than that window.  Nothing is being chased any more, so the
-# 0.3 s node wait is just a bus query three times a second for as long as the
-# mouse is in a drawer - cheap (1.4 ms, measured) but pointless.
+# bus for longer than that window.  Still checking, just not as often: the
+# 0.3 s node wait globs sysfs three times a second for as long as the mouse
+# is in a drawer, and nothing is arriving that fast.
 _ABSENT_WAIT = 2.0
 
 # How many goes the read done on adoption gets in all - the first plus two
@@ -906,17 +913,24 @@ class PulsarMouseApp(Adw.Application):
 
         A missing node is not the signal, though - our own battery poll
         takes it away every minute, and so does the read after a DPI press -
-        so this asks the bus instead.  It keeps asking for a few seconds
-        rather than once, since the other half usually arrives a moment
-        after the first one leaves (and @f-o-o-g-s's one-port case has it
-        arrive in the same socket), then goes quiet and leaves the timer to
-        it: a mouse that has simply been put away should not cost a USB scan
-        a second for the rest of the session.
+        so this asks the bus instead.  It asks every second while the other
+        half might still be arriving (@f-o-o-g-s's one-port case has it come
+        back into the same socket a few seconds later), and every
+        _SWAP_SETTLED_INTERVAL after that, for as long as the device stays
+        away.
+
+        It used to stop at the window entirely, which made a leisurely swap
+        indistinguishable from a mouse put away in a drawer: @dbergPROTAKT
+        pulled the Areson's dongle, plugged the cable in unhurried, and the
+        app took ~70 s to follow - the battery timer, the very thing this
+        exists to beat (#13).  Stopping was never worth much either, since
+        the listener goes on waking every _ABSENT_WAIT regardless; it just
+        threw the answer away.
 
         Called from the listener thread; the check itself goes through an
         idle callback because it may open the dongle under the USB lock.
         Returns True once the device has been gone longer than the window,
-        which is the listener's cue to stop looking so often.
+        which is the listener's cue to look less often, not to stop.
         """
         if device_present(device):
             self._absent_device = None
@@ -926,13 +940,12 @@ class PulsarMouseApp(Adw.Application):
             self._absent_device = device
             self._absent_since = now
             self._absent_last_check = 0.0
-        if now - self._absent_since > _SWAP_WATCH_WINDOW:
-            return True         # gone for good as far as this is concerned
-        if now - self._absent_last_check < _SWAP_WATCH_INTERVAL:
-            return False
-        self._absent_last_check = now
-        GLib.idle_add(self._swap_check_idle)
-        return False
+        settled = now - self._absent_since > _SWAP_WATCH_WINDOW
+        interval = _SWAP_SETTLED_INTERVAL if settled else _SWAP_WATCH_INTERVAL
+        if now - self._absent_last_check >= interval:
+            self._absent_last_check = now
+            GLib.idle_add(self._swap_check_idle)
+        return settled
 
     def _refresh_battery(self):
         if self._follow_device_swap():
