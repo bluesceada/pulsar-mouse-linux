@@ -375,7 +375,7 @@ Checksum: bytes[62:64] = LE uint16(sum(bytes[0:62])).
 - [@mwsmws22](https://github.com/mwsmws22) — Nordic keyboard shortcut fix (shortcut-table writes, Xlite V3 button mapping)
 - [@Scout339](https://github.com/Scout339) — Logo design, wireless mouse testing
 - [@iamtherobin](https://github.com/iamtherobin) — Pulsar Fusion USB captures and screen recordings that the X2 CrazyLight drivers (dongle and wired) were decoded from
-- [@dbergPROTAKT](https://github.com/dbergPROTAKT) — Pulsar X2 Wireless (Areson IDs) driver, with hardware testing over both the dongle and the cable
+- [@dbergPROTAKT](https://github.com/dbergPROTAKT) — Pulsar X2 Wireless (Areson IDs) driver, with hardware testing over both the dongle and the cable; the Areson answering hidraw requests on input report 0x09 while they go out on 0x08, and the framing checks that go with it — a reply's checksum, and a memory read echoing the address it was asked for, so another program on the same node cannot have its answers taken for ours
 - [@macieqzz](https://github.com/macieqzz) — Pulsar X2A Wireless button layout confirmed on hardware (thumb3/thumb4/DPI addresses and function slots)
 - [@Wyatt-Robinson](https://github.com/Wyatt-Robinson) — Feinmann F01 Noctua Edition: USB capture and screen recording the driver was decoded from, plus hardware testing
 - meniscus- — Found that a wheel turn over a GUI slider silently changed the setting, on an X2 CrazyLight
