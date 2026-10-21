@@ -727,6 +727,10 @@ class PulsarMouseApp(Adw.Application):
                     GLib.timeout_add(int(self._READ_RETRY_DELAY * 1000),
                                      self._retry_power_read, device,
                                      self._POWER_RETRY_TRIES)
+                # This read answering is also the news an open window that
+                # read nothing has been waiting for - see
+                # MainWindow.reload_if_unread().
+                GLib.idle_add(self._reload_window_if_unread)
             except Exception:
                 # Not only the battery: the first command of all can be the
                 # one that finds nobody home, and then this read loses the
@@ -1047,6 +1051,12 @@ class PulsarMouseApp(Adw.Application):
             # level in the tray when nothing's actively happening with it.
             self._sni.set_icon(_battery_icon_name(pct, True) if charging else 'input-mouse')
         self._update_tray_tooltip()
+        # A reading arriving - polled or pushed - is the mouse answering,
+        # which is the one thing a window that read nothing is waiting for.
+        # Not only the owed-read path: a window opened onto a mouse that was
+        # already asleep has no debt behind it, because the tray had read
+        # the thing fine while it was awake.
+        self._reload_window_if_unread()
         try:
             # Written to a temp file in the same directory and renamed into
             # place: os.replace() is atomic on POSIX, so an external reader
@@ -1263,6 +1273,16 @@ class PulsarMouseApp(Adw.Application):
         row = getattr(window, '_home_dpi_row', None)
         if row is not None and dpi is not None:
             row.set_subtitle(f'{dpi} DPI')
+        return False
+
+    def _reload_window_if_unread(self) -> bool:
+        """Give an open window another go now that the mouse has answered.
+
+        get_windows() rather than self._win alone, for the reason
+        _apply_event_to_window() gives.
+        """
+        if self.get_windows() and self._win is not None:
+            self._win.reload_if_unread()
         return False
 
     def _update_tray_label(self, dpi=None, hz=None, initial=False):
@@ -1495,6 +1515,10 @@ class MainWindow(Adw.ApplicationWindow):
         # regardless, so the tray survives.
         self._profile = 1
         self._building = False
+        # Whether anything has actually been read off the mouse into these
+        # widgets - see _apply() and reload_if_unread().
+        self._dpi_loaded = False
+        self._unread_reload_at = 0.0
         # A plain bool, not an fd - _home_hidraw_listener owns opening and
         # closing its own fd entirely on its own thread now (see that
         # method's docstring for why, this used to try to close the fd
@@ -2743,12 +2767,54 @@ X-GNOME-Autostart-enabled=true
     def _reload(self):
         self._run_bg(self._do_reload)
 
+    # Floor on how often an unread page retries by itself - see
+    # reload_if_unread().  A reload is twenty-odd USB reads holding
+    # _USB_LOCK, and the signal it hangs off is the mouse's own battery
+    # report, which arrives as often as the mouse feels like sending one.
+    # A page that cannot load (readable battery, unreadable config) would
+    # otherwise retry on every one of them.
+    _UNREAD_RELOAD_INTERVAL = 10.0
+
+    def reload_if_unread(self) -> None:
+        """Load the page now, if the first attempt found nobody home.
+
+        The app calls this when its own read has just succeeded, which on a
+        mouse that was asleep is the first moment anything is readable at
+        all.  @dbergPROTAKT swapped cable for dongle on an idle Areson: the
+        window came up on its error banner with nothing read, and "Reload
+        from mouse" went on failing for as long as the mouse stayed asleep,
+        because nothing retried it on its own (#13).  The tray's read is the
+        one with a schedule behind it - see
+        PulsarMouseApp._owe_initial_read() - so it does the noticing for
+        both.
+        """
+        if self._device is None or self._dpi_loaded:
+            return
+        now = time.monotonic()
+        if now - self._unread_reload_at < self._UNREAD_RELOAD_INTERVAL:
+            return
+        self._unread_reload_at = now
+        self._reload()
+
     def _reload_profile(self):
         self._run_bg(self._do_reload_profile)
 
     def _apply(self):
         caps = self._caps
         if not caps:
+            return
+        if not self._dpi_loaded:
+            # Nothing was ever read into these widgets, so what they hold is
+            # what Adw.SpinRow starts at: every stage at capabilities.dpi_min
+            # and all max_dpi_stages of them enabled.  Applying that writes
+            # it to the mouse.  @dbergPROTAKT walked into the state it comes
+            # from - a swap onto a sleeping Areson, whose open() times out in
+            # _mem_read_all(), so the whole window read fails at once and the
+            # page shows six stages at 50 DPI (#13).  The stage list and the
+            # active stage always go out together on Apply, so there is no
+            # subset of this worth writing.
+            self._show_error('Nothing has been read from the mouse yet — '
+                             'wake it and reload before applying')
             return
         num_stages = int(self._stage_count_row.get_value())
         poll_idx = self._poll_row.get_selected()
@@ -3171,6 +3237,7 @@ X-GNOME-Autostart-enabled=true
             active = dpi_info['active']
             self._stage_count_row.set_value(num)
             self._active_stage_row.set_selected(max(0, active - 1))
+            self._dpi_loaded = True
             for i, row in enumerate(self._dpi_rows):
                 row.set_value(stages[i][0] if i < len(stages) else 800)
                 row.set_sensitive(i < num)
