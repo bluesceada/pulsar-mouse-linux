@@ -149,6 +149,12 @@ _SWAP_WATCH_INTERVAL = 1.0
 # out, plugged the cable in at a human pace, and waited ~70 s for the app to
 # follow - the minute timer, because the watch had already given up (#13).
 # A swap is one plug in each hand; there is no reason it has to be quick.
+#
+# Both numbers are floors, not periods: the check only runs when the
+# listener wakes, and it sleeps _NODE_WAIT then _ABSENT_WAIT between looks,
+# so each interval rounds up to the next wake.  @f-o-o-g-s timed the checks
+# landing every 1.2 s inside the window and every 6.0 s after it, which
+# makes 6 s the worst case for noticing a slow swap (#21).
 _SWAP_SETTLED_INTERVAL = 5.0
 
 # How long the listener waits between looks once its device has been off the
@@ -468,6 +474,9 @@ class PulsarMouseApp(Adw.Application):
         self._absent_device = None
         self._absent_since = 0.0
         self._absent_last_check = 0.0
+        # The device whose adoption read ran out of tries, if any - see
+        # _owe_initial_read().
+        self._initial_read_owed = None
         self._menu_server = None     # rebuilt when the mouse changes connection
         self._device = None  # PulsarDevice instance
 
@@ -649,6 +658,7 @@ class PulsarMouseApp(Adw.Application):
 
     def _read_initial_state(self, tries_left: int = _INITIAL_READ_TRIES):
         device = self._device
+        self._initial_read_owed = None      # this attempt supersedes the debt
 
         def _read():
             if device is None:
@@ -720,11 +730,35 @@ class PulsarMouseApp(Adw.Application):
                     GLib.timeout_add(int(self._READ_RETRY_DELAY * 1000),
                                      self._retry_initial_read, device,
                                      tries_left - 1)
+                else:
+                    GLib.idle_add(self._owe_initial_read, device)
         threading.Thread(target=_read, daemon=True).start()
 
     def _retry_initial_read(self, device, tries_left: int) -> bool:
         if device is self._device:
             self._read_initial_state(tries_left)
+        return False        # one-shot
+
+    def _owe_initial_read(self, device) -> bool:
+        """Remember that a swap's read never finished, and why that matters.
+
+        The retries are spaced for a mouse that is nearly ready.  A mouse
+        that is asleep is a different thing: @f-o-o-g-s left 45 s between
+        pulling one half and plugging in the other, and by then the X3 had
+        gone to sleep with nothing to talk to - all three tries timed out in
+        get_polling_rate().  The battery came back on its own (the mouse
+        pushes it), but Quick DPI stayed empty and no polling rate was
+        ticked, half an hour later, because nothing on the timer path refills
+        those: _refresh_battery() reads power alone, Quick DPI otherwise
+        comes back only on a DPI press, and the Hz tick only from here (#21).
+
+        So the debt is recorded and paid from whichever comes first: the
+        mouse volunteering a battery report, which in his runs was the
+        reliable sign it had woken (the battery was never readable before
+        one), or the next battery tick, for a mouse that pushes nothing.
+        """
+        if device is self._device:
+            self._initial_read_owed = device
         return False        # one-shot
 
     # A mouse that has just changed connection is often not ready for the
@@ -951,6 +985,13 @@ class PulsarMouseApp(Adw.Application):
         if self._follow_device_swap():
             return True     # the new device's own read is already under way
         device = self._device
+        if device is not None and self._initial_read_owed is device:
+            # A swap whose read never finished owes more than a battery
+            # reading - see _owe_initial_read().  This is the fallback for a
+            # mouse that pushes nothing; one that does has usually paid it
+            # the moment it woke.
+            self._read_initial_state()
+            return True
         if device is None or not hasattr(device, 'get_power') or self._battery_item is None:
             return True  # keep the timer alive in case device/UI state changes
 
@@ -1097,6 +1138,12 @@ class PulsarMouseApp(Adw.Application):
                         # stays, because how often this arrives is not
                         # known.
                         GLib.idle_add(self._set_battery_label, event)
+                        if self._initial_read_owed is device:
+                            # It is awake, then - and the read that a swap
+                            # onto a sleeping mouse lost is owed.  See
+                            # _owe_initial_read().
+                            GLib.idle_add(self._retry_initial_read, device,
+                                          _INITIAL_READ_TRIES)
                     elif 'signal_percent' in event:
                         now = time.monotonic()
                         if now - last_signal_update >= _SIGNAL_UPDATE_INTERVAL:
