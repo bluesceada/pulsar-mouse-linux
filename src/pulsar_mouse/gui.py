@@ -477,6 +477,7 @@ class PulsarMouseApp(Adw.Application):
         # The device whose adoption read ran out of tries, if any - see
         # _owe_initial_read().
         self._initial_read_owed = None
+        self._scan_id = 0            # see _start_device_scan()
         self._menu_server = None     # rebuilt when the mouse changes connection
         self._device = None  # PulsarDevice instance
 
@@ -530,6 +531,8 @@ class PulsarMouseApp(Adw.Application):
         self._win = win
         if device and self._sni is None:
             self._build_tray(device)
+        elif device is None:
+            self._start_device_scan()
         self.hold()
 
     # ── System-tray ──────────────────────────────────────────────────────────
@@ -833,6 +836,52 @@ class PulsarMouseApp(Adw.Application):
     # the wrong half is what this check exists to prevent.
     _SWAP_LOCK_WAIT = 0.25
     _SWAP_LOCK_WAIT_OPENING = 1.5
+
+    # How often to look for a mouse when the app started without one - see
+    # _start_device_scan().  A plain descriptor scan, no device opened, so
+    # this can be quick; nothing else is watching in this state, since both
+    # the listener and the battery timer belong to the tray and the tray is
+    # built from a device.
+    _NO_DEVICE_SCAN_INTERVAL = 2
+
+    def _start_device_scan(self) -> None:
+        """Watch for a mouse arriving, for an app that started without one.
+
+        Starting the GUI with nothing plugged in used to be the end of it:
+        with no device there is no tray, so no event listener and no battery
+        timer, and those are the only two things that ever look again.
+        Plugging a mouse in afterwards changed nothing until the app was
+        restarted - @dbergPROTAKT plugged the dongle in and got "No device
+        available" until he did (#13), and guessed it was scan timing; there
+        was no scan.
+        """
+        if getattr(self, '_scan_id', 0):
+            return              # already looking
+        self._scan_id = GLib.timeout_add_seconds(self._NO_DEVICE_SCAN_INTERVAL,
+                                                 self._scan_for_device)
+
+    def _scan_for_device(self) -> bool:
+        if self._device is not None:
+            self._scan_id = 0
+            return False        # something else got there first
+        try:
+            device = find_device()
+        except RuntimeError:
+            return True         # keep looking
+        self._scan_id = 0
+        self._device = device
+        print(f'{device.capabilities.name} arrived')
+        if self._sni is None:
+            self._build_tray(device)
+        # The window was built for no device at all - a single banner, not
+        # the tabbed layout - so it has to be built again rather than
+        # reloaded, same as a swap does it in _adopt_device().
+        if self.get_windows() and self._win is not None:
+            self._win._stop_listeners()
+            self._win.destroy()
+            self._win = None
+            GLib.idle_add(self.activate)
+        return False
 
     def _follow_device_swap(self, lock_wait: float = _SWAP_LOCK_WAIT) -> bool:
         """Move to the mouse's other connection when this one has gone.
