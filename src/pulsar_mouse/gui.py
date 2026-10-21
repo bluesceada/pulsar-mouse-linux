@@ -683,6 +683,20 @@ class PulsarMouseApp(Adw.Application):
                         except Exception:
                             profile = 1     # single-profile, or can't be asked
                         dpi_info = device.get_dpi_stages(profile)
+                        # Queued from inside the lock, ahead of the power
+                        # read: both of these only touch menu items, never
+                        # USB, and the read below can cost a second.
+                        # @f-o-o-g-s watched get_power() time out on the
+                        # very push that woke the mouse, while the polling
+                        # rate and the stages had answered in 30 ms - and
+                        # because the updates went out after the locked
+                        # block, the menu filled a second after the push
+                        # instead of with it (#21).
+                        dpi = dpi_info['stages'][dpi_info['active'] - 1][0]
+                        GLib.idle_add(self._update_tray_label, dpi, hz, True)
+                        GLib.idle_add(self._rebuild_dpi_menu,
+                                      dpi_info['stages'], dpi_info['active'],
+                                      profile)
                         pwr = None
                         if hasattr(device, 'get_power'):
                             # Guarded separately from hz/dpi_info above - a
@@ -707,10 +721,6 @@ class PulsarMouseApp(Adw.Application):
                             remember_connected_mouse(device)
                     finally:
                         device.close()
-                dpi = dpi_info['stages'][dpi_info['active'] - 1][0]
-                GLib.idle_add(self._update_tray_label, dpi, hz, True)
-                GLib.idle_add(self._rebuild_dpi_menu, dpi_info['stages'],
-                              dpi_info['active'], profile)
                 if pwr is not None:
                     GLib.idle_add(self._set_battery_label, pwr)
                 elif hasattr(device, 'get_power'):
@@ -770,6 +780,11 @@ class PulsarMouseApp(Adw.Application):
     # couple of goes.  Kept short and few on purpose: the other reason it
     # fails is a mouse that has gone to sleep, and that one should be left to
     # the minute poll rather than prodded.
+    #
+    # Waking counts as changing connection here: in run8 the power read timed
+    # out on the very report that woke the mouse, both times, and it was this
+    # retry that got the reading 1.5 s later.  So a pushed 05 07 says the
+    # mouse is awake; it does not promise its battery register answers yet.
     _READ_RETRY_DELAY = 1.5
     _POWER_RETRY_TRIES = 2
 
