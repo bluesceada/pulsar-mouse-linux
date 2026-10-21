@@ -118,6 +118,12 @@ _USB_LOCK = threading.Lock()
 # Home page and the tray throttle down to this).
 _SIGNAL_UPDATE_INTERVAL = 20.0
 
+# How often a report arriving is allowed to mean "the mouse is awake" - see
+# PulsarMouseApp._hidraw_listener().  The window it tells has its own, longer
+# floor on actually reloading; this one only keeps the input stream on that
+# node from queueing an idle callback per report.
+_ALIVE_SIGNAL_INTERVAL = 1.0
+
 # How long to let device-initiated events settle before reading the value
 # back.  Reading claims the config interface, and on the Nordic family that
 # is the interface the events arrive on - so the read blinds the listener for
@@ -1159,6 +1165,7 @@ class PulsarMouseApp(Adw.Application):
 
     def _hidraw_listener(self):
         last_signal_update = 0.0
+        last_alive = 0.0
         # The node disappears whenever anything claims that USB interface -
         # our own battery polls, and the read a 'dpi_changed' event asks for -
         # so reopen it instead of giving up on the first error.
@@ -1194,6 +1201,20 @@ class PulsarMouseApp(Adw.Application):
                     data = os.read(fd, 256)
                     if not data:
                         break
+                    # Before asking what it says: that anything arrived
+                    # at all means the mouse is awake, which is the one
+                    # thing a window that read nothing is waiting for.  A
+                    # pushed battery report is the nicer signal but not
+                    # every mouse volunteers one - @dbergPROTAKT woke an
+                    # Areson by hand and the page stayed empty, with no
+                    # reading to trigger on (#13) - whereas a click or a
+                    # nudge always lands here, parsed or not.
+                    # Rate-limited because this node is the mouse's real
+                    # input path: it streams while the mouse moves.
+                    now = time.monotonic()
+                    if now - last_alive >= _ALIVE_SIGNAL_INTERVAL:
+                        last_alive = now
+                        GLib.idle_add(self._reload_window_if_unread)
                     event = device.parse_hidraw_event(data)
                     if not event:
                         continue
@@ -2824,6 +2845,16 @@ X-GNOME-Autostart-enabled=true
     # otherwise retry on every one of them.
     _UNREAD_RELOAD_INTERVAL = 10.0
 
+    # How many goes the automatic reload gets, and how far apart.  One is
+    # not enough: the report that proves the mouse is awake does not promise
+    # its config registers answer yet - @f-o-o-g-s measured get_power()
+    # timing out on the very push that woke an X3 (#21), and
+    # @dbergPROTAKT's run B is what that looks like from the window, where a
+    # single attempt failed and left the page empty with the mouse awake and
+    # answering by hand a moment later (#13).  Same shape and spacing as the
+    # tray's adoption read, for the same reason.
+    _UNREAD_RELOAD_DELAY = 1.5
+
     def reload_if_unread(self) -> None:
         """Load the page now, if the first attempt found nobody home.
 
@@ -2843,7 +2874,26 @@ X-GNOME-Autostart-enabled=true
         if now - self._unread_reload_at < self._UNREAD_RELOAD_INTERVAL:
             return
         self._unread_reload_at = now
-        self._reload()
+        self._reload_unread(_INITIAL_READ_TRIES)
+
+    def _reload_unread(self, tries_left: int) -> bool:
+        """One go at an unread page, with the next one queued behind it.
+
+        Runs on the main thread, which is what makes the check honest: the
+        populate that would set _dpi_loaded goes through GLib.idle_add(), so
+        a worker asking the question the moment _do_reload() returns can
+        still see False on a read that worked.
+        """
+        if self._dpi_loaded or self._device is None:
+            return False
+        self._run_bg(lambda: self._do_reload_unread(tries_left))
+        return False        # one-shot
+
+    def _do_reload_unread(self, tries_left: int) -> None:
+        self._do_reload()
+        if tries_left > 1:
+            GLib.timeout_add(int(self._UNREAD_RELOAD_DELAY * 1000),
+                             self._reload_unread, tries_left - 1)
 
     def _reload_profile(self):
         self._run_bg(self._do_reload_profile)
