@@ -1589,6 +1589,7 @@ class MainWindow(Adw.ApplicationWindow):
         # widgets - see _apply() and reload_if_unread().
         self._dpi_loaded = False
         self._unread_reload_at = 0.0
+        self._reload_in_flight = False
         # A plain bool, not an fd - _home_hidraw_listener owns opening and
         # closing its own fd entirely on its own thread now (see that
         # method's docstring for why, this used to try to close the fd
@@ -2870,6 +2871,13 @@ X-GNOME-Autostart-enabled=true
         """
         if self._device is None or self._dpi_loaded:
             return
+        if self._reload_in_flight:
+            # The page is unread because its own first read has not finished
+            # yet, not because it failed.  The tray's read lands half a
+            # second after the window is built, which on an awake mouse is
+            # inside the window's own read - @f-o-o-g-s saw the two go out
+            # back to back after a swap, 20 ms and 40 ms on the cable (#21).
+            return
         now = time.monotonic()
         if now - self._unread_reload_at < self._UNREAD_RELOAD_INTERVAL:
             return
@@ -3023,14 +3031,18 @@ X-GNOME-Autostart-enabled=true
                       power_saving, low_power, turbo, fan)
 
     def _do_reload(self):
-        if not self._open_dev():
-            return
+        self._reload_in_flight = True       # see reload_if_unread()
         try:
-            self._sync_profile_from_device()
-            self._read_and_populate_global()
-            self._do_reload_profile_inner()
+            if not self._open_dev():
+                return
+            try:
+                self._sync_profile_from_device()
+                self._read_and_populate_global()
+                self._do_reload_profile_inner()
+            finally:
+                self._close_dev()
         finally:
-            self._close_dev()
+            self._reload_in_flight = False
 
     def _sync_profile_from_device(self):
         """Put the profile selector on the profile the mouse is using.
@@ -3330,6 +3342,16 @@ X-GNOME-Autostart-enabled=true
         # whose sensitivity tracks the stage count) untouched instead,
         # same as every other field here does on a failed read.
         num = None
+        if dpi_info is None and not self._dpi_loaded:
+            # Not every mouse announces this on its own.  On the Areson
+            # nordic.open() reads the memory map, so a sleeping mouse fails
+            # the whole read and _open_dev() puts up its own banner; on an
+            # X3 over the dongle open() succeeds and only the field reads
+            # time out, which left @f-o-o-g-s looking at a page of SpinRow
+            # starting values - one stage at 100 DPI, 125 Hz - with nothing
+            # saying they were never read (#21).
+            self._show_error('Nothing could be read from the mouse — it may '
+                             'be asleep; wake it and this will fill itself')
         if dpi_info is not None:
             stages = dpi_info['stages']
             num    = dpi_info['count']
