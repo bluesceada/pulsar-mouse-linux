@@ -1589,7 +1589,16 @@ class MainWindow(Adw.ApplicationWindow):
         # widgets - see _apply() and reload_if_unread().
         self._dpi_loaded = False
         self._unread_reload_at = 0.0
-        self._reload_in_flight = False
+        # True from the start: __init__ queues this window's own first read
+        # below, so from the moment it exists a read is already on its way.
+        # @f-o-o-g-s caught the gap - after a dongle swap the tray's read
+        # landed between the window being built and that queued read
+        # running, so reload_if_unread() saw nothing in flight and started a
+        # second one 1 ms ahead of the first (#21).
+        self._reload_in_flight = True
+        # Whether any field Apply writes was lost on the last read pass -
+        # see _read_field() and _populate_profile_inner().
+        self._read_lost = False
         # A plain bool, not an fd - _home_hidraw_listener owns opening and
         # closing its own fd entirely on its own thread now (see that
         # method's docstring for why, this used to try to close the fd
@@ -2836,6 +2845,11 @@ X-GNOME-Autostart-enabled=true
         threading.Thread(target=fn, daemon=True).start()
 
     def _reload(self):
+        # Set here as well as in the worker, and here first: a read queued
+        # from the main thread is in flight from the moment it is queued,
+        # not from whenever its thread gets round to starting - see
+        # __init__'s own note on this.
+        self._reload_in_flight = True
         self._run_bg(self._do_reload)
 
     # Floor on how often an unread page retries by itself - see
@@ -3036,6 +3050,7 @@ X-GNOME-Autostart-enabled=true
             if not self._open_dev():
                 return
             try:
+                self._read_lost = False     # see _read_field()
                 self._sync_profile_from_device()
                 self._read_and_populate_global()
                 self._do_reload_profile_inner()
@@ -3110,12 +3125,20 @@ X-GNOME-Autostart-enabled=true
             # having to remember - which the CLI did not, and silently
             # wrote per-active-profile settings to the outgoing profile.
             # Nothing to do here anymore.
+            self._read_lost = False         # see _read_field()
             self._read_and_populate_global()
             self._do_reload_profile_inner()
         finally:
             self._close_dev()
 
-    def _read_field(self, fn, *args):
+    def _read_field(self, fn, *args, applied: bool = True):
+        # applied=False for a field Apply never writes back - the button
+        # bindings are read-only in this window.  Losing one of those
+        # leaves a row blank, which is not the same kind of wrong as
+        # leaving a widget on its construction default and then writing
+        # that to the mouse, so only the fields Apply writes decide whether
+        # the page counts as read (see _populate_profile_inner()).
+        #
         # Drivers may only implement a subset of get_* methods (e.g. a
         # write-only-so-far driver like feinmann8k.py) - one missing getter
         # shouldn't block every other field from loading. Also covers a
@@ -3127,7 +3150,15 @@ X-GNOME-Autostart-enabled=true
         # it shouldn't blank out every other already-successful field.
         try:
             return fn(*args)
+        except NotImplementedError:
+            # "This driver has no such field", not "the mouse did not
+            # answer".  A write-only-so-far driver hits this on every read
+            # of that field and its pages are no less trustworthy for it,
+            # so this one does not count against the page below.
+            return None
         except Exception:
+            if applied:
+                self._read_lost = True
             return None
 
     def _do_reload_profile_inner(self):
@@ -3158,10 +3189,16 @@ X-GNOME-Autostart-enabled=true
             if caps.has_stage_colors:
                 colors = [self._read_field(device.get_stage_color, i, p)
                          for i in range(1, caps.max_dpi_stages + 1)]
-            buttons = {bid: self._read_field(device.get_button, bid, p)
+            buttons = {bid: self._read_field(device.get_button, bid, p,
+                                             applied=False)
                        for bid in caps.buttons.values()}
+            # Whether anything was lost is read off this thread and handed
+            # over as a value: the lock is released the moment this pass
+            # returns, so the next pass can be resetting the flag before
+            # the idle callback below runs.
             GLib.idle_add(self._populate_profile,
-                          lod, brightness, led, breathe, dpi_info, colors, buttons)
+                          lod, brightness, led, breathe, dpi_info, colors,
+                          buttons, not self._read_lost)
         except Exception as e:
             GLib.idle_add(self._show_error, f'Read error (profile {p}): {e}')
 
@@ -3295,18 +3332,19 @@ X-GNOME-Autostart-enabled=true
         finally:
             self._building = False
 
-    def _populate_profile(self, lod, brightness, led, breathe, dpi_info, colors, buttons):
+    def _populate_profile(self, lod, brightness, led, breathe, dpi_info,
+                          colors, buttons, read_all=True):
         # try/finally for the same reason as _populate_global() above.
         caps = self._caps
         self._building = True
         try:
             self._populate_profile_inner(lod, brightness, led, breathe,
-                                         dpi_info, colors, buttons)
+                                         dpi_info, colors, buttons, read_all)
         finally:
             self._building = False
 
     def _populate_profile_inner(self, lod, brightness, led, breathe,
-                                dpi_info, colors, buttons):
+                                dpi_info, colors, buttons, read_all=True):
         caps = self._caps
         if self._lod_row and lod is not None:
             if caps.lod_step:
@@ -3342,7 +3380,17 @@ X-GNOME-Autostart-enabled=true
         # whose sensitivity tracks the stage count) untouched instead,
         # same as every other field here does on a failed read.
         num = None
-        if dpi_info is None and not self._dpi_loaded:
+        # read_all is the whole pass, not just this half: every field Apply
+        # writes answered.  Anything less and the page still has widgets on
+        # their construction defaults, which is what _dpi_loaded exists to
+        # keep Apply away from - @f-o-o-g-s hit both halves of that on an
+        # X3.  Waking the mouse partway through a sleeping read gave a page
+        # where the DPI stages had answered and the polling rate had not, so
+        # it showed 125 Hz on a mouse set to 1000 and counted as read; a
+        # cable plugged into the same port lost only the first command of
+        # the pass and did the same thing (#21).  Both because the DPI read
+        # alone used to decide this.
+        if not (dpi_info is not None and read_all) and not self._dpi_loaded:
             # Not every mouse announces this on its own.  On the Areson
             # nordic.open() reads the memory map, so a sleeping mouse fails
             # the whole read and _open_dev() puts up its own banner; on an
@@ -3350,20 +3398,29 @@ X-GNOME-Autostart-enabled=true
             # time out, which left @f-o-o-g-s looking at a page of SpinRow
             # starting values - one stage at 100 DPI, 125 Hz - with nothing
             # saying they were never read (#21).
-            self._show_error('Nothing could be read from the mouse — it may '
-                             'be asleep; wake it and this will fill itself')
+            if dpi_info is None and not read_all:
+                self._show_error('Nothing could be read from the mouse — it '
+                                 'may be asleep; wake it and this will fill '
+                                 'itself')
+            else:
+                self._show_error('Some settings could not be read from the '
+                                 'mouse — wake it and this will fill itself')
         if dpi_info is not None:
             stages = dpi_info['stages']
             num    = dpi_info['count']
             active = dpi_info['active']
             self._stage_count_row.set_value(num)
             self._active_stage_row.set_selected(max(0, active - 1))
-            self._dpi_loaded = True
             for i, row in enumerate(self._dpi_rows):
                 row.set_value(stages[i][0] if i < len(stages) else 800)
                 row.set_sensitive(i < num)
             if self._home_dpi_row is not None and 1 <= active <= len(stages):
                 self._home_dpi_row.set_subtitle(f'{stages[active - 1][0]} DPI')
+            # Last, after the rows above are filled: a raise in there would
+            # otherwise leave the page counted as read with the DPI rows
+            # still on their construction values.
+            if read_all:
+                self._dpi_loaded = True
 
         if self._color_buttons and colors:
             for i, btn in enumerate(self._color_buttons):
