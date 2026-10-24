@@ -10,12 +10,13 @@ Packet format:
   [2]     register (bit7=0: write, bit7=1: read)
   [3]     sub-register
   [4-5]   always 0x00
-  [6]     profile: 0x00=global, 0x01-0x05=profile 1-5
+  [6]     profile: 0x00=global, else 1 to capabilities.num_profiles
+          (5 on the X2A, 6 on the X3)
   [7-61]  payload
   [62-63] checksum: little-endian uint16 of sum(bytes[0:62])
 
 Global settings (profile=0): polling rate, debounce, angle snap, ripple, motion sync
-Per-profile settings (profile=1-5): DPI stages, LOD, brightness, LED effect, button bindings
+Per-profile settings (profile=1-N): DPI stages, LOD, brightness, LED effect, button bindings
 """
 
 import struct
@@ -45,10 +46,10 @@ BUTTON_DEFAULTS = {
     0x01: (BTN_TYPE_MOUSE, 0x01, 0x00),  # left   → left click
     0x02: (BTN_TYPE_MOUSE, 0x02, 0x00),  # right  → right click
     0x03: (BTN_TYPE_MOUSE, 0x03, 0x00),  # wheel  → wheel click
-    0x04: (BTN_TYPE_MOUSE, 0x04, 0x00),  # thumb1 → forward
-    0x05: (BTN_TYPE_MOUSE, 0x05, 0x00),  # thumb2 → backward
-    0x06: (BTN_TYPE_MOUSE, 0x04, 0x00),  # thumb3 → forward
-    0x07: (BTN_TYPE_MOUSE, 0x05, 0x00),  # thumb4 → backward
+    0x04: (BTN_TYPE_MOUSE, 0x04, 0x00),  # thumb1 → backward
+    0x05: (BTN_TYPE_MOUSE, 0x05, 0x00),  # thumb2 → forward
+    0x06: (BTN_TYPE_MOUSE, 0x04, 0x00),  # thumb3 → backward
+    0x07: (BTN_TYPE_MOUSE, 0x05, 0x00),  # thumb4 → forward
     0x0b: (BTN_TYPE_DPI,   0x03, 0x00),  # dpi    → dpiloop
 }
 
@@ -70,24 +71,34 @@ class PulsarX2A(PulsarDevice):
             'left':   0x01,
             'right':  0x02,
             'wheel':  0x03,
-            'thumb1': 0x04,   # left thumb front (default: forward)
-            'thumb2': 0x05,   # left thumb back  (default: backward)
-            'thumb3': 0x06,   # right thumb front (default: forward)
-            'thumb4': 0x07,   # right thumb back  (default: backward)
+            'thumb1': 0x04,   # left side, rear   (default: backward)
+            'thumb2': 0x05,   # left side, front  (default: forward)
+            'thumb3': 0x06,   # right side, rear  (default: backward)
+            'thumb4': 0x07,   # right side, front (default: forward)
             'dpi':    0x0b,
         },
         polling_rates=[125, 250, 500, 1000],
         lod_values=[1, 2],
+        # Both flanks the same way round, rear back and front forward:
+        # measured on the X2A by binding 0x04 and 0x05 to scroll up and down,
+        # so all four side buttons sent something different, and pressing
+        # them one at a time (#24).
         button_labels={
             'left': 'Left Click', 'right': 'Right Click',
             'wheel': 'Wheel Click',
-            'thumb1': 'Thumb 1 (forward)', 'thumb2': 'Thumb 2 (back)',
-            'thumb3': 'Thumb 3 (forward)', 'thumb4': 'Thumb 4 (back)',
+            'thumb1': 'Left Side Back (backward)',
+            'thumb2': 'Left Side Front (forward)',
+            'thumb3': 'Right Side Back (backward)',
+            'thumb4': 'Right Side Front (forward)',
             'dpi': 'DPI Button',
         },
     )
 
     _WVALUE = 0x0300  # HID Feature report, report ID 0
+
+    # hid.py's back and forward codes go to the mouse as they are; see
+    # PulsarDevice._V1_EXPORTS_SWAP_BACK_FORWARD.
+    _V1_EXPORTS_SWAP_BACK_FORWARD = True
 
     def __init__(self):
         self._dev = None
@@ -262,6 +273,27 @@ class PulsarX2A(PulsarDevice):
     def set_motion_sync(self, enabled: bool) -> None:
         self._cmd(0x07, 0x05, 0x02, 0x00, [1 if enabled else 0])
 
+    # ── Active profile ────────────────────────────────────────────────────
+
+    # cat=0x02/reg=0x06/sub=0x01: the profile the mouse is using.  Read with
+    # profile 0, the answer is in the reply's profile byte [6].  The write
+    # carries the new profile in that same byte and no payload; put it in
+    # the payload at byte 7 instead and the X2A refuses it with 0x03 (#24).
+    # It's a live switch, not just a stored number: the active DPI stage
+    # read through profile 0 (05/81/02) follows it straight away on the X3
+    # and the X2A, and on the X3's cable a write through profile 0 sent
+    # right after the switch lands on the new profile.  The X3 also
+    # announces a switch on interface 1 as 05 01 <profile> (seen through
+    # the 1K dongle), but the X2A doesn't, so nothing here waits for that.
+    def get_active_profile(self) -> int:
+        return self._read(0x02, 0x06, 0x01, 0x00)[6]
+
+    def set_active_profile(self, profile: int) -> None:
+        count = self.capabilities.num_profiles
+        if not 1 <= profile <= count:
+            raise ValueError(f"Profile must be 1-{count}")
+        self._cmd(0x02, 0x06, 0x01, profile)
+
     # ── Per-profile: LOD ──────────────────────────────────────────────────
 
     def get_lod(self, profile: int) -> int:
@@ -387,6 +419,8 @@ class PulsarX2A(PulsarDevice):
     # profile 5 alone, and reading all of it back.
     def reset_to_defaults(self, profile: int) -> None:
         self._cmd(0x02, 0x05, 0x01, profile)
+        # 02/06/01 is the profile switch (set_active_profile()), so a reset
+        # also leaves the mouse on `profile`.
         pkt = self._build(0x02, 0x06, 0x01, profile)
         self._set_report(pkt)
         try:

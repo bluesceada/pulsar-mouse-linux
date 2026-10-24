@@ -149,8 +149,8 @@ class PulsarFeinmann8K(PulsarDevice):
             'left':   0x01,
             'right':  0x02,
             'wheel':  0x03,
-            'thumb1': 0x04,   # left thumb front (default: forward)
-            'thumb2': 0x05,   # left thumb back  (default: backward)
+            'thumb1': 0x04,   # left thumb (default: backward)
+            'thumb2': 0x05,   # left thumb (default: forward)
             'dpi':    0x0b,
         },
         polling_rates=sorted(POLL_HZ_TO_VAL),
@@ -177,12 +177,16 @@ class PulsarFeinmann8K(PulsarDevice):
         lod_step=0.1,
         button_labels={
             'left': 'Left Click', 'right': 'Right Click', 'wheel': 'Wheel Click',
-            'thumb1': 'Thumb 1 (forward)', 'thumb2': 'Thumb 2 (back)',
+            'thumb1': 'Thumb 1 (back)', 'thumb2': 'Thumb 2 (forward)',
             'dpi': 'DPI Button',
         },
     )
 
     _WVALUE = 0x0300      # HID Feature report, report ID 0
+
+    # hid.py's back and forward codes go to the mouse as they are; see
+    # PulsarDevice._V1_EXPORTS_SWAP_BACK_FORWARD.
+    _V1_EXPORTS_SWAP_BACK_FORWARD = True
 
     def __init__(self):
         self._dev = None
