@@ -102,6 +102,7 @@ class PulsarX2A(PulsarDevice):
 
     def __init__(self):
         self._dev = None
+        self._read_resends_left = self._READ_RESENDS
 
     # ── Connection lifecycle ──────────────────────────────────────────────
 
@@ -117,6 +118,7 @@ class PulsarX2A(PulsarDevice):
             dev.detach_kernel_driver(caps.interface_num)
         usb.util.claim_interface(dev, caps.interface_num)
         self._dev = dev
+        self._read_resends_left = self._READ_RESENDS   # see _READ_RESENDS
 
     def close(self) -> None:
         if self._dev is None:
@@ -163,6 +165,47 @@ class PulsarX2A(PulsarDevice):
     _ACK_POLLS = 8
     _ACK_DELAY = 0.02
 
+    # A read still on 0x00 after its 8 polls was never taken, and polling
+    # longer doesn't fix that: the mouse has nothing in hand to answer.  A
+    # cabled X3 does this to commands sent in the first moments after a swap
+    # from the 1K dongle to the cable, with the mouse awake (#21).  The
+    # polling-rate read, sent 1 ms after the cable showed up:
+    #
+    #   * not resent: 0x00 for these 8 polls and for 50 more over a full
+    #     second, never answered
+    #   * resent straight after the polls: 0x00 again on the first resend,
+    #     then 0x01 and the right rate (1000 Hz) on the second, about 0.16
+    #     and 0.32 s after the first send
+    #   * with this code and the constants below: dropped at +1, +260 and
+    #     +518 ms, answered (1000 Hz) at +775 ms
+    #
+    # Not every swap does it (another one answered at +1 ms), and how long it
+    # lasts varies: the app's reads have been dropped at 0.23, 0.39, 0.47 and
+    # 0.63 s after the cable arrived, and answered at 0.40, 0.78 and 1.17 s.
+    # So rather than guess the window, resend: with the polls, the delay
+    # below puts sends about 0.26 s apart, the last one about 1.55 s after
+    # the first, more than twice the latest drop seen.
+    #
+    # Only at the start of an open, though.  Once a read has been answered,
+    # every later read in that open has answered on its first poll in every
+    # measurement so far: after each swap above (up to 34 reads), 1000 in a
+    # row on a cabled X3, 67 on an X2A.  So the first answer after open()
+    # ends the resends, and until then the _READ_RESENDS are shared by all
+    # the reads instead of given to each.  A read that is answered sends
+    # once as before.  A mouse that answers nothing costs about 1.6 s on the
+    # first read (1.58 s measured on an X2A) and 0.14 s on each one after
+    # it, as before the resends, so a 25-read GUI pass, which holds
+    # _USB_LOCK throughout, takes about 5 s, where resending every read
+    # would take about 40 s.
+    #
+    # Only 0x00 is resent.  0x02 means the mouse has the command and is still
+    # on it, and a second copy then is how the dongle loses replies (#15).
+    # Only reads, too: _cmd() accepts 0x02, and resending a write the mouse
+    # did take is a different risk, not measured here.  The 1K dongle has its
+    # own _read() (xlite_v4_wireless.py) and doesn't come through here.
+    _READ_RESENDS = 6
+    _READ_RESEND_DELAY = 0.1
+
     def _poll_ack(self, accept: tuple) -> bytes:
         rsp = self._get_report()
         for _ in range(self._ACK_POLLS - 1):
@@ -201,11 +244,21 @@ class PulsarX2A(PulsarDevice):
         return rsp
 
     def _read(self, cat, reg, sub, profile, payload=()):
-        self._set_report(self._build_read(cat, reg, sub, profile, payload))
+        cmd = self._build_read(cat, reg, sub, profile, payload)
+        self._set_report(cmd)
         rsp = self._poll_ack((0x01,))
+        sends = 1
+        while rsp[0] == 0x00 and self._read_resends_left > 0:
+            self._read_resends_left -= 1
+            time.sleep(self._READ_RESEND_DELAY)
+            self._set_report(cmd)
+            rsp = self._poll_ack((0x01,))
+            sends += 1
         if rsp[0] != 0x01:
+            sent = f" each, sent {sends} times" if sends > 1 else ""
             raise IOError(f"Bad response direction byte: 0x{rsp[0]:02x} "
-                          f"(after {self._ACK_POLLS} polls)")
+                          f"(after {self._ACK_POLLS} polls{sent})")
+        self._read_resends_left = 0
         return rsp
 
     # ── Device information ────────────────────────────────────────────────
