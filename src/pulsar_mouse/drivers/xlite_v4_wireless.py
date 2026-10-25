@@ -95,6 +95,15 @@ class Fusion2LodTenths:
     it exact.  Nothing else writes this register - Fusion2 never wrote a mode
     other than 2 in any capture.
 
+    Of those two, 01 01 (the old "2 mm") was measured behaving like 02 0a.
+    00 00 (the old "1 mm") was put through the coins too: it is a working
+    setting rather than off or ignored, tracking in all eight windows at 1.35
+    and 1.52 mm, but that round's rig sat low enough that 02 07 and 02 0a
+    tracked at 1.52 mm as well, so it cannot be separated from them.  All it
+    supports is that 00 00 tracks like the others up to 1.5 mm and nothing
+    says it reaches further - which is consistent with reading it as 1 mm,
+    and is as far as coins go.
+
     Which settings are offered is the driver's, not this mixin's: it writes
     whatever capabilities.lod_values holds.
     """
