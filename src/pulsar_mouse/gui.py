@@ -3167,6 +3167,18 @@ X-GNOME-Autostart-enabled=true
         p = self._profile
         try:
             lod = self._read_field(device.get_lod, p) if caps.lod_values else None
+            if (lod is not None and not caps.lod_step
+                    and lod not in caps.lod_values):
+                # The mouse is on a setting this driver does not offer, so
+                # the row cannot show it - and a row showing something else
+                # is one Apply writes back.  @f-o-o-g-s put an X3 on 0.7 mm
+                # (which it has on its cable, and Fusion2 offers) and read
+                # it through the 1K dongle, which can only name 1 and 2: the
+                # page showed 1 mm and an Apply that changed nothing else
+                # wrote 1 mm over it (#24).  So this counts as a field that
+                # did not come back, which is what stops Apply.
+                lod = None
+                self._read_lost = True
             brightness = self._read_field(device.get_brightness, p) if caps.has_led else None
             led = self._read_field(device.get_led_effect, p) if caps.has_led else None
             breathe = (self._read_field(device.get_breathe_speed, p)
@@ -3353,8 +3365,13 @@ X-GNOME-Autostart-enabled=true
                 try:
                     lod_idx = caps.lod_values.index(lod)
                 except ValueError:
-                    lod_idx = 0
-                self._lod_row.set_selected(lod_idx)
+                    # Unreachable from _do_reload_profile_inner(), which
+                    # turns such a value into a lost field - but leaving the
+                    # row alone is the right answer wherever it comes from,
+                    # and selecting the first entry was the bug (#24).
+                    lod_idx = None
+                if lod_idx is not None:
+                    self._lod_row.set_selected(lod_idx)
         if self._bright_row and brightness is not None:
             lo, hi = caps.brightness_range
             pct = round((brightness - lo) / (hi - lo) * 100) if hi > lo else 0

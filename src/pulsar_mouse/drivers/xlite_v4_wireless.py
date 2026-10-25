@@ -395,16 +395,22 @@ class PulsarXliteV4Wireless(Fusion2Power, PulsarXliteV4):
     def _lod_is_tenths(self) -> bool:
         """Whether the mouse on the dongle uses Fusion2LodTenths' encoding.
 
-        False, without remembering it, when the dongle will not say: the
-        X2A encoding is what every driver here did before this was known,
-        and the next call asks again.
+        The X2A encoding when the dongle will not say - what every driver
+        here did before this was known - and that answer is remembered for
+        the rest of the open like any other.  Asking again would be worse
+        than guessing once: @f-o-o-g-s found that a first ask that fails and
+        a second that answers leaves a page read the X2A way and the Apply
+        after it written the tenths way, so an X3 on 1.0 mm goes to 2.0 with
+        nobody touching the row (#24).  A read and the write that follows it
+        have to agree, even when they agree on the wrong thing - that at
+        least shows the user what it is about to do.
         """
         if self._lod_tenths is None:
             try:
-                pid = self.get_connected_mouse()['pid']
+                self._lod_tenths = (
+                    self.get_connected_mouse()['pid'] in LOD_TENTHS_PIDS)
             except Exception:
-                return False
-            self._lod_tenths = pid in LOD_TENTHS_PIDS
+                self._lod_tenths = False
         return self._lod_tenths
 
     def get_lod(self, profile: int) -> float:

@@ -135,9 +135,26 @@ class DongleTests(unittest.TestCase):
             dongle.get_lod(1)
         self.assertEqual(dongle.pairing_reads, 1)
 
-    def test_a_dongle_that_refused_is_asked_again(self):
+    def test_a_dongle_that_refused_is_not_asked_again_in_that_open(self):
+        # A first ask that fails and a second that answers would read the
+        # page one way and write it the other (#24).
         dongle = scripted(PulsarXliteV4Wireless, 0x01, 0x00, pairing=False)
         dongle.get_lod(1)
+        dongle.get_lod(1)
+        self.assertEqual(dongle.pairing_reads, 1)
+
+    def test_a_refused_ask_reads_and_writes_the_same_way(self):
+        dongle = scripted(PulsarXliteV4Wireless, 0x02, 0x0a, pairing=False)
+        self.assertEqual(dongle.get_lod(1), 2)      # x2a.py's byte 7
+        dongle.set_lod(2, 1)
+        # Not 02 14: the write agrees with what the read showed, so an
+        # Apply that changed nothing else cannot move the mouse.
+        self.assertEqual(tuple(dongle.sent[-1][7:9]), (0x01, 0x01))
+
+    def test_a_new_open_asks_again(self):
+        dongle = scripted(PulsarXliteV4Wireless, 0x01, 0x00, pairing=False)
+        dongle.get_lod(1)
+        dongle._lod_tenths = None       # as open() does
         dongle.get_lod(1)
         self.assertEqual(dongle.pairing_reads, 2)
 
