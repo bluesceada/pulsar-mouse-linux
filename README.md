@@ -374,7 +374,7 @@ link, and the code comments next to whatever each finding explains.
 - [@packerlschupfer](https://github.com/packerlschupfer) — Original creator and maintainer of pulsar-mouse-linux
 - [@harveywuk](https://github.com/harveywuk) — Feinmann 8K/FO1 driver, multi-profile support, button remapping, desktop pointer-settings integration, Nix flake, GUI redesign, protocol reliability fixes (stale-reply guard, LED read-modify-write, RF settle timing)
 - [@variasjon](https://github.com/variasjon) — Xlite v4 wireless dongle driver
-- [@f-o-o-g-s](https://github.com/f-o-o-g-s) — Pulsar X3 and 1K dongle support, Fusion2 captures and protocol decoding, the dongle's lost-request recovery, the GUI's event listeners and read-reliability fixes, the screenshot set, and a great deal of hardware testing
+- [@f-o-o-g-s](https://github.com/f-o-o-g-s) — Pulsar X3 and 1K dongle support, Fusion2 captures and protocol decoding, the dongle's lost-request recovery and write pacing, the GUI's event listeners and read-reliability fixes, the screenshot set, and a great deal of hardware testing
 - [@mwsmws22](https://github.com/mwsmws22) — Nordic keyboard shortcut fix (shortcut-table writes, Xlite V3 button mapping)
 - [@Scout339](https://github.com/Scout339) — Logo design, wireless mouse testing
 - [@iamtherobin](https://github.com/iamtherobin) — Pulsar Fusion USB captures and screen recordings that the X2 CrazyLight drivers (dongle and wired) were decoded from
