@@ -14,12 +14,15 @@ widgets: _populate_profile_inner() and _apply() are the two methods that
 decide this, and they touch nothing else.  No display needed.
 """
 
+import types
 import unittest
+from unittest.mock import patch
 
 try:
+    from pulsar_mouse import gui
     from pulsar_mouse.gui import MainWindow
 except (ImportError, ValueError) as e:      # no GTK 4 / libadwaita here
-    MainWindow = None
+    gui = MainWindow = None
     _why = e
 
 from pulsar_mouse.drivers.xlite_v4_wireless import PulsarXliteV4Wireless
@@ -71,6 +74,7 @@ def page():
     w._poll_row = Row()
     w._dpi_rows = [Row() for _ in range(caps.max_dpi_stages)]
     w._color_buttons = []
+    w._btn_rows = {}
     for name in ('_bright_row', '_led_row', '_breathe_row',
                  '_breathe_row_container', '_home_dpi_row', '_home_mode_row',
                  '_debounce_row', '_angle_row', '_ripple_row', '_motion_row',
@@ -83,6 +87,51 @@ def page():
 def read(w, dpi_info, lod=1, read_all=True):
     w._populate_profile_inner(lod, None, None, None, dpi_info, None, {},
                               read_all)
+
+
+class Device:
+    """Only the per-profile getters _do_reload_profile_inner() calls."""
+
+    capabilities = PulsarXliteV4Wireless.capabilities
+
+    def __init__(self, stages):
+        self.stages = stages
+
+    def get_lod(self, _profile):
+        return 1
+
+    def get_brightness(self, _profile):
+        return 0x80
+
+    def get_led_effect(self, _profile):
+        return self.capabilities.led_effects[0]
+
+    def get_breathe_speed(self, _profile):
+        return 3
+
+    def get_dpi_stages(self, _profile):
+        return {'active': 1, 'count': len(self.stages),
+                'stages': [(d, d) for d in self.stages]}
+
+    def get_stage_color(self, _stage, _profile):
+        return (0, 0, 0)
+
+    def get_button(self, _btn, _profile):
+        return (0x01, 0x01, 0x00)
+
+
+def reload_pass(w, stages):
+    """One real read pass, returning what it handed _populate_profile()."""
+    w._device = Device(stages)
+    w._read_lost = False
+    handed = []
+    fake = types.SimpleNamespace(idle_add=lambda fn, *a: handed.append((fn, a)))
+    with patch.object(gui, 'GLib', fake):
+        w._do_reload_profile_inner()
+    for fn, args in handed:
+        if fn == w._populate_profile:
+            return args
+    raise AssertionError(f'no populate call: {handed}')
 
 
 @unittest.skipIf(MainWindow is None, 'needs GTK 4 and libadwaita')
@@ -141,6 +190,43 @@ class PageTrustTests(unittest.TestCase):
         w._apply()
         self.assertEqual(w.applied, [])
         self.assertIn('Nothing has been read', w.errors[-1])
+
+
+@unittest.skipIf(MainWindow is None, 'needs GTK 4 and libadwaita')
+class AboveTheCapTests(unittest.TestCase):
+    """A DPI stage higher than the driver allows cannot be shown, so the row
+    would show the cap and Apply would write it (#34)."""
+
+    # Taken off the driver rather than written out, so that raising a
+    # driver's own ceiling does not quietly turn these into no-ops.
+    CAP = Device.capabilities.dpi_max
+
+    def test_stages_inside_the_range_are_passed_on(self):
+        w = page()
+        lod, _b, _l, _br, dpi_info, _c, _btn, read_all = reload_pass(
+            w, [800, 1600, self.CAP])
+        self.assertEqual(dpi_info['stages'][-1], (self.CAP, self.CAP))
+        self.assertTrue(read_all)
+        self.assertEqual(lod, 1)
+
+    def test_a_stage_above_the_cap_is_a_lost_field(self):
+        # @f-o-o-g-s's X3 through the 1K dongle held 26010 and 32000 where
+        # that driver allowed 26000, and both rows showed 26000.
+        w = page()
+        _lod, _b, _l, _br, dpi_info, _c, _btn, read_all = reload_pass(
+            w, [800, self.CAP, self.CAP + 10])
+        self.assertIsNone(dpi_info)
+        self.assertFalse(read_all)
+
+    def test_the_page_then_refuses_to_apply(self):
+        w = page()
+        read(w, PROFILE_1)                      # a complete pass first
+        args = reload_pass(w, [800, self.CAP + 10])
+        w._populate_profile(*args)
+        w.applied.clear()
+        w._apply()
+        self.assertEqual(w.applied, [])
+        self.assertIn('reload before applying', w.errors[-1])
 
 
 if __name__ == '__main__':

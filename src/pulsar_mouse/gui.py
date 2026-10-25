@@ -3214,6 +3214,21 @@ X-GNOME-Autostart-enabled=true
             # "this read failed, leave the widget alone") is what every
             # other field here already uses.
             dpi_info = self._read_field(device.get_dpi_stages, p)
+            if dpi_info is not None and any(
+                    dpi > caps.dpi_max for dpi, _dy in dpi_info['stages']):
+                # A stage above what this driver allows cannot be shown: the
+                # row's range stops at dpi_max, so it displays the cap and
+                # Apply writes that back.  @f-o-o-g-s read an X3 through the
+                # 1K dongle, whose driver allowed 26000 where the mouse had
+                # 26010 and 32000, and an Apply that changed nothing wrote
+                # 26000 over both (#34).  Same rule as the lift-off above.
+                #
+                # Only above: a value under dpi_min is clamped the same way,
+                # but an unconfigured stage can read as 0 on a driver that
+                # reads its stages out of a memory map, and that is not a
+                # reason to call the whole page unread.
+                dpi_info = None
+                self._read_lost = True
             colors = None
             if caps.has_stage_colors:
                 colors = [self._read_field(device.get_stage_color, i, p)
