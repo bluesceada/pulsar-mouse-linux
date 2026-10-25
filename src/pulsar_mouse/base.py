@@ -406,11 +406,15 @@ class PulsarDevice(ABC):
                 except Exception as e:
                     warnings.append(f'Stage {i} color: {e}')
         if 'lod_mm' in data and caps.lod_values:
-            lod = data['lod_mm']
-            if (data.get('version', 1) < 3
-                    and self._lod_export_is_mode_byte()):
-                lod = 1.0
+            # The version check is inside the try because it can fail: on the
+            # 1K dongle it asks which mouse is on the other end, and a dongle
+            # that will not say leaves the whole import stopping here with no
+            # warning (@f-o-o-g-s, #24).
             try:
+                lod = data['lod_mm']
+                if (data.get('version', 1) < 3
+                        and self._lod_export_is_mode_byte()):
+                    lod = 1.0
                 self.set_lod(lod, profile)
             except Exception as e:
                 warnings.append(f'LOD: {e}')

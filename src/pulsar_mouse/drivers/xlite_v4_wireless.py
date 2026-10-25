@@ -395,22 +395,24 @@ class PulsarXliteV4Wireless(Fusion2Power, PulsarXliteV4):
     def _lod_is_tenths(self) -> bool:
         """Whether the mouse on the dongle uses Fusion2LodTenths' encoding.
 
-        The X2A encoding when the dongle will not say - what every driver
-        here did before this was known - and that answer is remembered for
-        the rest of the open like any other.  Asking again would be worse
-        than guessing once: @f-o-o-g-s found that a first ask that fails and
-        a second that answers leaves a page read the X2A way and the Apply
-        after it written the tenths way, so an X3 on 1.0 mm goes to 2.0 with
-        nobody touching the row (#24).  A read and the write that follows it
-        have to agree, even when they agree on the wrong thing - that at
-        least shows the user what it is about to do.
+        Raises when the dongle will not say, which makes the lift-off field
+        one that did not come back - the whole-pass rule then stops the page
+        from being applied, and nothing is written in a shape that might not
+        be the mouse's.  An answer is remembered for the rest of the open, so
+        a pass that gets one asks once.
+
+        Guessing here cannot be made safe.  The X2A encoding was the guess,
+        on the grounds that a read and the write after it would at least
+        agree; @f-o-o-g-s showed they still don't, because the GUI reads the
+        page in one open and applies in a later one, and the answer is only
+        remembered within an open.  A first ask that fails and a second that
+        answers leaves an X3 on 1.0 mm shown as 2 mm and written to 2.0, and
+        it goes the other way too: a 1 mm row nobody touched writes 00 00
+        when only the Apply's ask fails (#24).
         """
         if self._lod_tenths is None:
-            try:
-                self._lod_tenths = (
-                    self.get_connected_mouse()['pid'] in LOD_TENTHS_PIDS)
-            except Exception:
-                self._lod_tenths = False
+            self._lod_tenths = (
+                self.get_connected_mouse()['pid'] in LOD_TENTHS_PIDS)
         return self._lod_tenths
 
     def get_lod(self, profile: int) -> float:

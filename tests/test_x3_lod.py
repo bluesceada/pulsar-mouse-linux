@@ -125,9 +125,11 @@ class DongleTests(unittest.TestCase):
         dongle.set_lod(2, 1)
         self.assertEqual(tuple(dongle.sent[-1][7:9]), (0x01, 0x01))
 
-    def test_a_dongle_that_will_not_say_keeps_the_x2a_encoding(self):
+    def test_a_dongle_that_will_not_say_reads_nothing(self):
+        # Not the X2A encoding as a fallback: see _lod_is_tenths().
         dongle = scripted(PulsarXliteV4Wireless, 0x01, 0x00, pairing=False)
-        self.assertEqual(dongle.get_lod(1), 2)
+        with self.assertRaises(IOError):
+            dongle.get_lod(1)
 
     def test_the_pairing_is_asked_once_per_open(self):
         dongle = scripted(PulsarXliteV4Wireless, paired=X3_PID)
@@ -135,24 +137,35 @@ class DongleTests(unittest.TestCase):
             dongle.get_lod(1)
         self.assertEqual(dongle.pairing_reads, 1)
 
-    def test_a_dongle_that_refused_is_not_asked_again_in_that_open(self):
-        # A first ask that fails and a second that answers would read the
-        # page one way and write it the other (#24).
-        dongle = scripted(PulsarXliteV4Wireless, 0x01, 0x00, pairing=False)
-        dongle.get_lod(1)
-        dongle.get_lod(1)
-        self.assertEqual(dongle.pairing_reads, 1)
-
-    def test_a_refused_ask_reads_and_writes_the_same_way(self):
+    def test_a_refused_ask_writes_nothing(self):
         dongle = scripted(PulsarXliteV4Wireless, 0x02, 0x0a, pairing=False)
-        self.assertEqual(dongle.get_lod(1), 2)      # x2a.py's byte 7
-        dongle.set_lod(2, 1)
-        # Not 02 14: the write agrees with what the read showed, so an
-        # Apply that changed nothing else cannot move the mouse.
-        self.assertEqual(tuple(dongle.sent[-1][7:9]), (0x01, 0x01))
+        with self.assertRaises(IOError):
+            dongle.set_lod(2, 1)
+        self.assertEqual([p[1:4] for p in dongle.sent],
+                         [bytes([0x01, 0x84, 0x04])])
+
+    def test_only_an_answer_is_remembered(self):
+        # Nothing is cached from a refusal, so the next call asks again
+        # rather than carrying a guess through the rest of the open.
+        dongle = scripted(PulsarXliteV4Wireless, 0x01, 0x00, pairing=False)
+        for _ in range(2):
+            with self.assertRaises(IOError):
+                dongle.get_lod(1)
+        self.assertEqual(dongle.pairing_reads, 2)
+
+    def test_a_read_and_a_later_open_s_write_cannot_disagree(self):
+        # @f-o-o-g-s's case: the GUI reads the page in one open and applies
+        # in a later one, so a refusal in either of them used to be a guess
+        # that the other one did not share.  An X3 holding 02 0a (1 mm) with
+        # the page read's ask lost: the row showed 2 mm and the Apply after
+        # it wrote 02 14, moving a mouse nobody had touched to 2 mm (#24).
+        dongle = scripted(PulsarXliteV4Wireless, 0x02, 0x0a, pairing=False)
+        with self.assertRaises(IOError):
+            dongle.get_lod(1)       # the page has no value to apply
+        self.assertEqual(dongle.sent[-1][1:4], bytes([0x01, 0x84, 0x04]))
 
     def test_a_new_open_asks_again(self):
-        dongle = scripted(PulsarXliteV4Wireless, 0x01, 0x00, pairing=False)
+        dongle = scripted(PulsarXliteV4Wireless, 0x02, 0x0a, paired=X3_PID)
         dongle.get_lod(1)
         dongle._lod_tenths = None       # as open() does
         dongle.get_lod(1)
@@ -164,6 +177,17 @@ class DongleTests(unittest.TestCase):
         dongle = scripted(PulsarXliteV4Wireless, paired=X3_PID)
         with self.assertRaisesRegex(ValueError, 'LOD must be one of'):
             dongle.set_lod(0.7, 1)
+
+    def test_an_old_import_warns_when_the_dongle_will_not_say(self):
+        # The version check asks the same question, and it used to sit
+        # outside import_profile()'s try, so a refusal stopped the import
+        # where it stood - after the DPI write, with nothing said (#24).
+        dongle = scripted(PulsarXliteV4Wireless, pairing=False)
+        warnings = dongle.import_profile(1, {'version': 2, 'lod_mm': 2,
+                                             'brightness': 0x80})
+        self.assertTrue(any('LOD' in w for w in warnings), warnings)
+        # ...and the brightness after it still went out.
+        self.assertEqual(dongle.sent[-1][1:4], bytes([0x03, 0x03, 0x03]))
 
     def test_an_old_export_translates_only_for_a_tenths_mouse(self):
         dongle = scripted(PulsarXliteV4Wireless, paired=X3_PID)

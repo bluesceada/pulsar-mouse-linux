@@ -88,11 +88,14 @@ class NoLinkTests(unittest.TestCase):
         self.assertGreater(dongle.polls, 1)
 
     def test_no_link_for_another_profile_is_left_to_the_deadline(self):
+        # Of the active DPI stage for the same reason as above: lift-off
+        # asks which mouse the dongle carries first, and that ask is the one
+        # that would raise here (#24).
         dongle = ScriptedDongle(0x05, profile=2)
         dongle._REPLY_TIMEOUT = 0.02
         with self.assertRaisesRegex(
                 IOError, r'within 20 ms \(last status byte 0x05'):
-            dongle.get_lod(1)
+            dongle.get_active_dpi_stage(1)
         self.assertGreater(dongle.polls, 1)
 
     def test_answer_to_another_request_is_left_to_the_deadline(self):

@@ -430,8 +430,18 @@ def main():
             if caps.fan_range is not None:
                 status['fan_mode'] = device.get_fan_mode()
             if caps.lod_values:
-                lod_val = device.get_lod(profile)
-                if caps.lod_step is not None:
+                # Reported only when it can be read.  Every other field here
+                # is read straight, but lift-off through the 1K dongle also
+                # depends on which mouse the dongle says it carries, and one
+                # field refusing is no reason for a consumer of this to get
+                # nothing at all (@f-o-o-g-s, #24).
+                try:
+                    lod_val = device.get_lod(profile)
+                except Exception:
+                    lod_val = None
+                if lod_val is None:
+                    pass
+                elif caps.lod_step is not None:
                     status['lod'] = {
                         'value': lod_val,
                         'min': caps.lod_values[0],
