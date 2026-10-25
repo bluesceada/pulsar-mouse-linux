@@ -156,9 +156,12 @@ ADDR_RIPPLE_CONTROL   = 0xB1
 ADDR_TURBO_MODE       = 0xB5
 # The two can disagree, where every X2 CL capture has them equal:
 # @bluesceada's Xlite V3 read 0x06 at 0xAD and 0x12 at 0xB7, 60 s against
-# 180 s (#30).  So one of them is not the sleep timeout on every model, and
-# get_autosleep() reads this one - the first thing to doubt if a mouse ever
-# reports a timeout its own software disagrees with.
+# 180 s (#30).  Fusion showed 3 minutes for that same mouse, so this one is
+# the sleep timeout and 0xAD is something else on this model - which makes
+# set_autosleep()'s mirroring a write over whatever that is.  Left as it is
+# because mirroring is what the capture shows Fusion doing, and nothing says
+# which model's behaviour is the odd one; a Fusion capture of an Xlite V3
+# with the timer changed would say.
 ADDR_AUTOSLEEP        = 0xB7
 
 # ── Encoding tables ─────────────────────────────────────────────────────────
@@ -692,12 +695,19 @@ class PulsarNordic(PulsarDevice):
     # ── Device information ───────────────────────────────────────────────
 
     def get_firmware_version(self) -> str:
-        """Query the mouse firmware version (command 0x12)."""
+        """Query the mouse firmware version (command 0x12).
+
+        The two bytes are packed decimal, not numbers.  @bluesceada's Xlite
+        V3 answers 02 18, which Fusion shows as "Mouse V0218" and Pulsar's
+        own updater as "V2.18", where reading the second byte as a number
+        made it 2.24 (#30).  The X2 CrazyLight's 03 05 reads the same either
+        way, which is why this stood; its dongle answers 03 00, "V0300".
+        """
         try:
             resp = self._command(CMD_FW_VERSION)
         except Exception:
             return 'unknown'
-        return f'{resp[6]}.{resp[7]:02d}'
+        return f'{resp[6]:x}.{resp[7]:02x}'
 
     # ── Active profile ───────────────────────────────────────────────────
     # The memory map *is* the active profile: switching reloads all of it.
