@@ -259,6 +259,13 @@ class PulsarDevice(ABC):
     # names back, so an old file restores what it saved.
     _V1_EXPORTS_SWAP_BACK_FORWARD = False
 
+    # Profile files saved before the X3's lift-off distance was decoded
+    # (#24) say 'version' 1 or 2 and carry the mode byte of 07/02/03
+    # where a distance in millimetres belongs - see PulsarX3.get_lod().
+    # Both numbers such a file can hold are the mouse's 1 mm, so that is
+    # what import_profile() restores for a driver that sets this.
+    _PRE_V3_EXPORTS_LOD_IS_MODE_BYTE = False
+
     # ── Hidraw (for tray / DPI notifications) ─────────────────────────────
 
     # The interface whose hidraw node carries this mouse's unprompted
@@ -328,7 +335,7 @@ class PulsarDevice(ABC):
         caps = self.capabilities
         data = {
             'format': 'pulsar-mouse-profile',
-            'version': 2,
+            'version': 3,
             'device': caps.name,
             'profile': profile,
         }
@@ -396,8 +403,12 @@ class PulsarDevice(ABC):
                 except Exception as e:
                     warnings.append(f'Stage {i} color: {e}')
         if 'lod_mm' in data and caps.lod_values:
+            lod = data['lod_mm']
+            if (self._PRE_V3_EXPORTS_LOD_IS_MODE_BYTE
+                    and data.get('version', 1) < 3):
+                lod = 1.0
             try:
-                self.set_lod(data['lod_mm'], profile)
+                self.set_lod(lod, profile)
             except Exception as e:
                 warnings.append(f'LOD: {e}')
         if 'brightness' in data and caps.has_led:

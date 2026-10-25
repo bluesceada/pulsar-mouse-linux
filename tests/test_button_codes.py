@@ -78,10 +78,12 @@ class OldProfileFileTests(unittest.TestCase):
         self.assertEqual(calls, [(0x04, BTN_TYPE_MOUSE, 0x05, 0x00),
                                  (0x05, BTN_TYPE_MOUSE, 0x04, 0x00)])
 
-    def test_exports_say_version_2(self):
-        # No transport behind it: every read fails and is skipped, which
-        # leaves the header.
-        self.assertEqual(PulsarX3().export_profile(1)['version'], 2)
+    def test_exports_are_never_version_1(self):
+        # What matters here is that nothing this app writes now gets the
+        # swap above; the exact number is test_x3_lod.py's, which bumped it
+        # again.  No transport behind it: every read fails and is skipped,
+        # which leaves the header.
+        self.assertGreater(PulsarX3().export_profile(1)['version'], 1)
 
     def test_only_drivers_that_pass_codes_through_swap(self):
         self.assertTrue(PulsarX3._V1_EXPORTS_SWAP_BACK_FORWARD)
