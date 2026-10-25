@@ -74,6 +74,27 @@ CMD_ACTIVE_PROFILE_GET = 0x0E
 CMD_ACTIVE_PROFILE_SET = 0x0F
 CMD_FW_VERSION        = 0x12
 
+# Nothing in this protocol has been found that says which model answered,
+# and the question matters: the X2A Wireless and the Xlite V3 ship the same
+# two PIDs (#30).  Measured on an Xlite V3 by @bluesceada, over the cable
+# and the dongle, three runs alike:
+#
+#   0x01  with a zero nonce, 01 at byte 2 and nothing else.  The X2 CL
+#         capture has Fusion send a real nonce and get four bytes back plus
+#         57 03 05, a tail worth chasing: the last two are that mouse's
+#         firmware and 0x57 is unexplained.
+#   0x03  01 at byte 6, then three bytes that differ by model - 65 07 45 on
+#         the Xlite V3 against the X2 CL capture's 54 ac 3a.  Identical on
+#         both connections and in every run, so not a counter; but one
+#         mouse of one model cannot tell a model code from a serial.
+#   0x15  01 at byte 2, nothing else.
+#   0x17  ten zero bytes.
+#
+# Fusion identifies a mouse by CID and MID through a "CheckPsd" query
+# (@bluesceada, from its Cfg.ini, which differs between those two models in
+# the key matrix alone - KM=14 against KM=10), so a capture of Fusion
+# starting up is what would settle it.
+
 # The mouse sends this one unprompted when something changed on the device
 # itself.  Byte 6 says what.  The report carries no new value — four presses
 # of the DPI button across 400/800/1600/3200 produced four identical reports
@@ -133,6 +154,11 @@ ADDR_AUTOSLEEP_ALT    = 0xAD
 ADDR_ANGLE_SNAP       = 0xAF
 ADDR_RIPPLE_CONTROL   = 0xB1
 ADDR_TURBO_MODE       = 0xB5
+# The two can disagree, where every X2 CL capture has them equal:
+# @bluesceada's Xlite V3 read 0x06 at 0xAD and 0x12 at 0xB7, 60 s against
+# 180 s (#30).  So one of them is not the sleep timeout on every model, and
+# get_autosleep() reads this one - the first thing to doubt if a mouse ever
+# reports a timeout its own software disagrees with.
 ADDR_AUTOSLEEP        = 0xB7
 
 # ── Encoding tables ─────────────────────────────────────────────────────────
