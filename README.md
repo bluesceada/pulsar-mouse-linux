@@ -380,6 +380,7 @@ link, and the code comments next to whatever each finding explains.
 - [@iamtherobin](https://github.com/iamtherobin) — Pulsar Fusion USB captures and screen recordings that the X2 CrazyLight drivers (dongle and wired) were decoded from
 - [@dbergPROTAKT](https://github.com/dbergPROTAKT) — Pulsar X2 Wireless (Areson IDs) driver, with hardware testing over both the dongle and the cable; the hidraw framing checks that keep another program's replies out of ours, and the swap and retry timing behind the sleeping-mouse fixes
 - [@macieqzz](https://github.com/macieqzz) — Pulsar X2A Wireless button layout confirmed on hardware (thumb3/thumb4/DPI addresses and function slots)
+- [@bluesceada](https://github.com/bluesceada) — Found that the Xlite V3 shares the X2A Wireless's USB IDs and differs only in the key matrix
 - [@Wyatt-Robinson](https://github.com/Wyatt-Robinson) — Feinmann F01 Noctua Edition: USB capture and screen recording the driver was decoded from, plus hardware testing
 - meniscus- — Found that a wheel turn over a GUI slider silently changed the setting, on an X2 CrazyLight
 - [andrewrabert](https://github.com/andrewrabert) — [python-pulsar-mouse-tool](https://github.com/andrewrabert/python-pulsar-mouse-tool), reference implementation for the Nordic wireless protocol
