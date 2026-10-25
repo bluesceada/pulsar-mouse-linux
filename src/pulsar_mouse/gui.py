@@ -1588,6 +1588,9 @@ class MainWindow(Adw.ApplicationWindow):
         # Whether anything has actually been read off the mouse into these
         # widgets - see _apply() and reload_if_unread().
         self._dpi_loaded = False
+        # Whether the LAST read pass answered in full, which is the question
+        # Apply has to ask - see _populate_profile_inner().
+        self._read_complete = False
         self._unread_reload_at = 0.0
         # True from the start: __init__ queues this window's own first read
         # below, so from the moment it exists a read is already on its way.
@@ -2924,6 +2927,20 @@ X-GNOME-Autostart-enabled=true
         caps = self._caps
         if not caps:
             return
+        if self._dpi_loaded and not self._read_complete:
+            # Read once and then re-read with something lost.  The widgets
+            # hold the last complete pass, which on a profile switch is
+            # another profile's values - and Apply writes them into this
+            # one.  @f-o-o-g-s found it with profile 1 on 02 0a and profile
+            # 2 on 02 07: switching left the row on 1 mm and Apply wrote
+            # 02 0a over the 0.7, and a lost DPI read on profile 2 had
+            # Apply write profile 1's stages into it (#24).  _dpi_loaded
+            # only ever went back to False in __init__, so the whole-pass
+            # rule from v0.1.21 guarded a window's first read and nothing
+            # after it.
+            self._show_error('Some settings could not be read from the '
+                             'mouse — reload before applying')
+            return
         if not self._dpi_loaded:
             # Nothing was ever read into these widgets, so what they hold is
             # what Adw.SpinRow starts at: every stage at capabilities.dpi_min
@@ -3407,7 +3424,12 @@ X-GNOME-Autostart-enabled=true
         # cable plugged into the same port lost only the first command of
         # the pass and did the same thing (#21).  Both because the DPI read
         # alone used to decide this.
-        if not (dpi_info is not None and read_all) and not self._dpi_loaded:
+        # A pass that lost a field leaves the page holding the one before
+        # it, whichever profile that was: see _apply(), which refuses on
+        # this.  Set here rather than in the reader because this is the
+        # thread the widgets are on.
+        self._read_complete = dpi_info is not None and read_all
+        if not self._read_complete:
             # Not every mouse announces this on its own.  On the Areson
             # nordic.open() reads the memory map, so a sleeping mouse fails
             # the whole read and _open_dev() puts up its own banner; on an
@@ -3415,7 +3437,13 @@ X-GNOME-Autostart-enabled=true
             # time out, which left @f-o-o-g-s looking at a page of SpinRow
             # starting values - one stage at 100 DPI, 125 Hz - with nothing
             # saying they were never read (#21).
-            if dpi_info is None and not read_all:
+            if self._dpi_loaded:
+                # A page that has been read once is not retried on a timer -
+                # reload_if_unread() is for one that never has - so this one
+                # says what to do rather than promising it fills itself.
+                self._show_error('Some settings could not be read from the '
+                                 'mouse — reload before applying')
+            elif dpi_info is None and not read_all:
                 self._show_error('Nothing could be read from the mouse — it '
                                  'may be asleep; wake it and this will fill '
                                  'itself')
