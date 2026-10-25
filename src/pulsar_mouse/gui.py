@@ -3182,6 +3182,13 @@ X-GNOME-Autostart-enabled=true
         caps = self._caps
         device = self._device
         p = self._profile
+        # Fields the mouse answered with a value this driver cannot name, as
+        # opposed to ones it did not answer at all.  Waiting does not help
+        # with these and the banner has to say something else (@f-o-o-g-s,
+        # #35: an above-cap DPI stage put an awake mouse on the "it may be
+        # asleep" banner, and the lift-off case had done the same since
+        # a18ed8f).
+        unnameable = []
         try:
             lod = self._read_field(device.get_lod, p) if caps.lod_values else None
             if (lod is not None and not caps.lod_step
@@ -3196,6 +3203,7 @@ X-GNOME-Autostart-enabled=true
                 # did not come back, which is what stops Apply.
                 lod = None
                 self._read_lost = True
+                unnameable.append('lift-off distance')
             brightness = self._read_field(device.get_brightness, p) if caps.has_led else None
             led = self._read_field(device.get_led_effect, p) if caps.has_led else None
             breathe = (self._read_field(device.get_breathe_speed, p)
@@ -3229,6 +3237,7 @@ X-GNOME-Autostart-enabled=true
                 # reason to call the whole page unread.
                 dpi_info = None
                 self._read_lost = True
+                unnameable.append('DPI stage')
             colors = None
             if caps.has_stage_colors:
                 colors = [self._read_field(device.get_stage_color, i, p)
@@ -3242,7 +3251,7 @@ X-GNOME-Autostart-enabled=true
             # the idle callback below runs.
             GLib.idle_add(self._populate_profile,
                           lod, brightness, led, breathe, dpi_info, colors,
-                          buttons, not self._read_lost)
+                          buttons, not self._read_lost, tuple(unnameable))
         except Exception as e:
             GLib.idle_add(self._show_error, f'Read error (profile {p}): {e}')
 
@@ -3377,18 +3386,20 @@ X-GNOME-Autostart-enabled=true
             self._building = False
 
     def _populate_profile(self, lod, brightness, led, breathe, dpi_info,
-                          colors, buttons, read_all=True):
+                          colors, buttons, read_all=True, unnameable=()):
         # try/finally for the same reason as _populate_global() above.
         caps = self._caps
         self._building = True
         try:
             self._populate_profile_inner(lod, brightness, led, breathe,
-                                         dpi_info, colors, buttons, read_all)
+                                         dpi_info, colors, buttons, read_all,
+                                         unnameable)
         finally:
             self._building = False
 
     def _populate_profile_inner(self, lod, brightness, led, breathe,
-                                dpi_info, colors, buttons, read_all=True):
+                                dpi_info, colors, buttons, read_all=True,
+                                unnameable=()):
         caps = self._caps
         if self._lod_row and lod is not None:
             if caps.lod_step:
@@ -3452,7 +3463,15 @@ X-GNOME-Autostart-enabled=true
             # time out, which left @f-o-o-g-s looking at a page of SpinRow
             # starting values - one stage at 100 DPI, 125 Hz - with nothing
             # saying they were never read (#21).
-            if self._dpi_loaded:
+            if unnameable:
+                # The mouse answered and this app cannot show what it said,
+                # so neither waiting nor reloading changes it: say that
+                # instead of blaming a mouse that is awake (#35).
+                self._show_error(
+                    'The mouse is set to a '
+                    + ' and a '.join(unnameable)
+                    + ' this app cannot show, so nothing can be applied')
+            elif self._dpi_loaded:
                 # A page that has been read once is not retried on a timer -
                 # reload_if_unread() is for one that never has - so this one
                 # says what to do rather than promising it fills itself.

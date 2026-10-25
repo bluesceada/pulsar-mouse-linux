@@ -84,9 +84,9 @@ def page():
     return w
 
 
-def read(w, dpi_info, lod=1, read_all=True):
+def read(w, dpi_info, lod=1, read_all=True, unnameable=()):
     w._populate_profile_inner(lod, None, None, None, dpi_info, None, {},
-                              read_all)
+                              read_all, unnameable)
 
 
 class Device:
@@ -203,20 +203,30 @@ class AboveTheCapTests(unittest.TestCase):
 
     def test_stages_inside_the_range_are_passed_on(self):
         w = page()
-        lod, _b, _l, _br, dpi_info, _c, _btn, read_all = reload_pass(
-            w, [800, 1600, self.CAP])
+        lod, _b, _l, _br, dpi_info, _c, _btn, read_all, unnameable = (
+            reload_pass(w, [800, 1600, self.CAP]))
         self.assertEqual(dpi_info['stages'][-1], (self.CAP, self.CAP))
         self.assertTrue(read_all)
+        self.assertEqual(unnameable, ())
         self.assertEqual(lod, 1)
 
     def test_a_stage_above_the_cap_is_a_lost_field(self):
         # @f-o-o-g-s's X3 through the 1K dongle held 26010 and 32000 where
         # that driver allowed 26000, and both rows showed 26000.
         w = page()
-        _lod, _b, _l, _br, dpi_info, _c, _btn, read_all = reload_pass(
-            w, [800, self.CAP, self.CAP + 10])
-        self.assertIsNone(dpi_info)
-        self.assertFalse(read_all)
+        args = reload_pass(w, [800, self.CAP, self.CAP + 10])
+        self.assertIsNone(args[4])          # dpi_info
+        self.assertFalse(args[7])           # read_all
+        self.assertEqual(args[8], ('DPI stage',))
+
+    def test_the_banner_does_not_blame_an_awake_mouse(self):
+        # The mouse answered; its answer is one the driver cannot show.
+        # Saying it may be asleep was wrong twice over, since the page
+        # cannot fill itself however long it waits (#35).
+        w = page()
+        w._populate_profile(*reload_pass(w, [800, self.CAP + 10]))
+        self.assertIn('cannot show', w.errors[-1])
+        self.assertNotIn('asleep', w.errors[-1])
 
     def test_the_page_then_refuses_to_apply(self):
         w = page()
