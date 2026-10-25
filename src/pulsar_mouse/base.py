@@ -259,12 +259,15 @@ class PulsarDevice(ABC):
     # names back, so an old file restores what it saved.
     _V1_EXPORTS_SWAP_BACK_FORWARD = False
 
-    # Profile files saved before the X3's lift-off distance was decoded
-    # (#24) say 'version' 1 or 2 and carry the mode byte of 07/02/03
-    # where a distance in millimetres belongs - see PulsarX3.get_lod().
-    # Both numbers such a file can hold are the mouse's 1 mm, so that is
-    # what import_profile() restores for a driver that sets this.
-    _PRE_V3_EXPORTS_LOD_IS_MODE_BYTE = False
+    # Profile files saved before the X3's lift-off distance was decoded (#24)
+    # say 'version' 1 or 2 and carry the mode byte of 07/02/03 where a
+    # distance in millimetres belongs - see Fusion2LodTenths.  Both numbers
+    # such a file can hold are the mouse's 1 mm, so that is what
+    # import_profile() restores for a driver that answers True here.  A
+    # method rather than a flag because the 1K dongle's answer depends on
+    # which mouse it is carrying.
+    def _lod_export_is_mode_byte(self) -> bool:
+        return False
 
     # ── Hidraw (for tray / DPI notifications) ─────────────────────────────
 
@@ -404,8 +407,8 @@ class PulsarDevice(ABC):
                     warnings.append(f'Stage {i} color: {e}')
         if 'lod_mm' in data and caps.lod_values:
             lod = data['lod_mm']
-            if (self._PRE_V3_EXPORTS_LOD_IS_MODE_BYTE
-                    and data.get('version', 1) < 3):
+            if (data.get('version', 1) < 3
+                    and self._lod_export_is_mode_byte()):
                 lod = 1.0
             try:
                 self.set_lod(lod, profile)

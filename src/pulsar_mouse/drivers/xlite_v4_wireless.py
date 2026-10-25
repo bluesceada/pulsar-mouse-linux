@@ -53,6 +53,70 @@ def _cabled_name(vid: int, pid: int) -> Optional[str]:
     return CONNECTED_MOUSE_NAMES.get(pid)
 
 
+# Cabled PIDs of mice that keep 07/02/03 as a mode and a distance rather
+# than as the X2A's single index - see Fusion2LodTenths.  The 1K dongle asks
+# which mouse it is carrying and looks it up here.
+LOD_TENTHS_PIDS = {
+    0x3409,     # Pulsar X3, x3.py's cabled PID
+}
+
+# Byte 7 of 07/02/03 when byte 8 is a distance in tenths of a millimetre.
+# Module-level rather than a class attribute: the dongle calls the methods
+# below without inheriting them, so that it keeps its own super() (#24).
+_LOD_MODE_TENTHS = 0x02
+
+
+class Fusion2LodTenths:
+    """07/02/03 as a mode and a distance in tenths of a millimetre.
+
+    The X3 does not use this register the way the X2A does, which is where
+    x2a.py's two-value table came from.  Byte 7 says how byte 8 is to be
+    read, and in mode 2 byte 8 is the distance in tenths of a millimetre.
+
+    @f-o-o-g-s captured Fusion2 1.0.5.8 driving an X3 through the 1K dongle,
+    and its three buttons write exactly that, each reading back unchanged
+    (#24):
+
+        0.7 mm -> 02 07        1 mm -> 02 0a        2 mm -> 02 14
+
+    A lift test with coins under the mouse's feet agrees: of those three only
+    02 14 still tracked at 1.75 mm, 02 0a stopped around 1.5 mm and 02 07 at
+    or below that.  The X3 ships on 02 0a, its 1 mm.
+
+    x2a.py reads byte 7, so it reported that as "2 mm" while the mouse was on
+    1.0, and its set_lod() writes the value twice, so this app's "2 mm" wrote
+    01 01 - mode 1, which the same lift test puts at about 1.0 mm too.  Apply
+    writes the LOD row whether or not it changed, so changing anything else
+    on the page replaced the mouse's own 02 0a with that.
+
+    Hence a pair that is not mode 2 reads as 1 mm: it is one this app wrote
+    before it knew the encoding, when its two choices were labelled 1 mm and
+    2 mm and both landed at or near the mouse's 1.0, and the next write makes
+    it exact.  Nothing else writes this register - Fusion2 never wrote a mode
+    other than 2 in any capture.
+
+    Which settings are offered is the driver's, not this mixin's: it writes
+    whatever capabilities.lod_values holds.
+    """
+
+    def get_lod(self, profile: int) -> float:
+        rsp = self._read(0x07, 0x02, 0x03, profile)
+        if rsp[7] != _LOD_MODE_TENTHS:
+            return 1.0
+        return round(rsp[8] / 10, 1)
+
+    def set_lod(self, mm: float, profile: int) -> None:
+        values = self.capabilities.lod_values
+        if mm not in values:
+            raise ValueError("LOD must be one of "
+                             + ", ".join(f'{v}' for v in values) + " (mm)")
+        self._cmd(0x07, 0x02, 0x03, profile,
+                  [_LOD_MODE_TENTHS, round(mm * 10)])
+
+    def _lod_export_is_mode_byte(self) -> bool:
+        return True
+
+
 class Fusion2Power:
     """The power category of the Fusion2 line: cat 0x08 on the Sonix protocol.
 
@@ -294,3 +358,57 @@ class PulsarXliteV4Wireless(Fusion2Power, PulsarXliteV4):
         if len(data) >= 3 and data[0] == 0x05 and data[1] == 0x0d:
             return {'signal_percent': data[2]}
         return super().parse_hidraw_event(data)
+
+    # ── Per-profile: LOD ──────────────────────────────────────────────────
+    #
+    # Which encoding 07/02/03 uses belongs to the mouse, not to the dongle,
+    # and this driver is one class for the whole Fusion2 line - see the
+    # header above on why it has no model_key.  So it asks.
+    # get_connected_mouse() comes out of the dongle's pairing memory in about
+    # a millisecond and answers whether the mouse is awake, asleep or on its
+    # cable, and what it answers cannot change inside one open, so it is
+    # asked once per open.
+    #
+    # The settings offered stay the two every Fusion2 mouse has: capabilities
+    # are a class variable, and this dongle cannot name the X3's third one
+    # (0.7 mm) for a mouse it may not be carrying.  What changes is what gets
+    # written for them - on an X3, 02 0a and 02 14, so its "2 mm" really is
+    # 2 mm and Apply stops replacing the mouse's own value.
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._lod_tenths = None     # see _lod_is_tenths()
+
+    def open(self) -> None:
+        super().open()
+        self._lod_tenths = None     # the dongle may have been re-paired
+
+    def _lod_is_tenths(self) -> bool:
+        """Whether the mouse on the dongle uses Fusion2LodTenths' encoding.
+
+        False, without remembering it, when the dongle will not say: the
+        X2A encoding is what every driver here did before this was known,
+        and the next call asks again.
+        """
+        if self._lod_tenths is None:
+            try:
+                pid = self.get_connected_mouse()['pid']
+            except Exception:
+                return False
+            self._lod_tenths = pid in LOD_TENTHS_PIDS
+        return self._lod_tenths
+
+    def get_lod(self, profile: int) -> float:
+        if self._lod_is_tenths():
+            return Fusion2LodTenths.get_lod(self, profile)
+        return super().get_lod(profile)
+
+    def set_lod(self, mm: float, profile: int) -> None:
+        if self._lod_is_tenths():
+            return Fusion2LodTenths.set_lod(self, mm, profile)
+        return super().set_lod(mm, profile)
+
+    def _lod_export_is_mode_byte(self) -> bool:
+        # A profile file does not record which mouse was on the dongle when
+        # it was saved, so this goes by the one that is on it now.
+        return self._lod_is_tenths()

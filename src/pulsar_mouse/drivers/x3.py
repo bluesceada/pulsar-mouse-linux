@@ -26,10 +26,12 @@ Confirmed on hardware with a Pulsar X3 on its cable (2026-10).
 
 from pulsar_mouse.base import DeviceCapabilities
 from pulsar_mouse.drivers.xlite_v4 import PulsarXliteV4
-from pulsar_mouse.drivers.xlite_v4_wireless import Fusion2Power
+from pulsar_mouse.drivers.xlite_v4_wireless import (
+    Fusion2LodTenths, Fusion2Power,
+)
 
 
-class PulsarX3(Fusion2Power, PulsarXliteV4):
+class PulsarX3(Fusion2Power, Fusion2LodTenths, PulsarXliteV4):
     """Driver for the Pulsar X3 on its cable (Sonix chipset)."""
 
     capabilities = DeviceCapabilities(
@@ -79,50 +81,7 @@ class PulsarX3(Fusion2Power, PulsarXliteV4):
     # stage the mouse does not have.
     _DPI_EVENT_FIRST_STAGE = 1
 
-    # ── Per-profile: LOD ─────────────────────────────────────────────────
-    #
-    # The X3 uses 07/02/03 differently from the X2A, which is where x2a.py's
-    # two-value table came from.  Byte 7 says how byte 8 is to be read, and
-    # in mode 2 byte 8 is the distance in tenths of a millimetre.
-    #
-    # @f-o-o-g-s captured Fusion2 1.0.5.8 driving an X3 through the 1K
-    # dongle, and its three buttons write exactly that, each reading back
-    # unchanged (#24):
-    #
-    #   0.7 mm -> 02 07      1 mm -> 02 0a      2 mm -> 02 14
-    #
-    # A lift test with coins under the mouse's feet agrees: of those three
-    # only 02 14 still tracked at 1.75 mm, 02 0a stopped around 1.5 mm and
-    # 02 07 at or below that.  The X3 ships on 02 0a, its 1 mm.
-    #
-    # x2a.py reads byte 7, so it reported that as "2 mm" while the mouse was
-    # on 1.0, and its set_lod() writes the value twice, so this app's "2 mm"
-    # wrote 01 01 - mode 1, which the same lift test puts at about 1.0 mm
-    # too.  Apply writes the LOD row whether or not it changed, so changing
-    # anything else on the page replaced the mouse's own 02 0a with that.
-    #
-    # Hence a pair that is not mode 2 reads as 1 mm here: it is one this app
-    # wrote before it knew the encoding, when its two choices were labelled
-    # 1 mm and 2 mm and both landed at or near the mouse's 1.0, and the next
-    # write makes it exact.  Nothing else writes this register - Fusion2
-    # never wrote a mode other than 2 in any capture.
-    _LOD_MODE_TENTHS = 0x02
-
-    # The number in a profile file saved before this fix came from the mode
-    # byte rather than a distance - see import_profile().
-    _PRE_V3_EXPORTS_LOD_IS_MODE_BYTE = True
-
-    def get_lod(self, profile: int) -> float:
-        rsp = self._read(0x07, 0x02, 0x03, profile)
-        if rsp[7] != self._LOD_MODE_TENTHS:
-            return 1.0
-        return round(rsp[8] / 10, 1)
-
-    def set_lod(self, mm: float, profile: int) -> None:
-        values = self.capabilities.lod_values
-        if mm not in values:
-            raise ValueError(
-                "LOD must be one of " + ", ".join(f'{v}' for v in values)
-                + " (mm)")
-        self._cmd(0x07, 0x02, 0x03, profile,
-                  [self._LOD_MODE_TENTHS, round(mm * 10)])
+    # Its lift-off distance is not the X2A's single index but a mode and a
+    # distance in tenths of a millimetre, with the three settings Fusion2
+    # offers - see Fusion2LodTenths, which the 1K dongle shares when it is
+    # carrying this mouse (#24).

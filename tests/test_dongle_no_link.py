@@ -63,10 +63,12 @@ class NoLinkTests(unittest.TestCase):
 
     def test_no_link_ends_a_per_profile_request(self):
         # The 05 echoes the profile byte too, as on the X3 for get_lod(1)
-        # and set_lod(1, 1).
+        # and set_lod(1, 1).  Asked here of the active DPI stage rather than
+        # the LOD, which asks the dongle which mouse it carries first (#24)
+        # and so would spend a poll before the one being counted.
         dongle = ScriptedDongle(0x05)
         with self.assertRaisesRegex(IOError, 'no link'):
-            dongle.get_lod(1)
+            dongle.get_active_dpi_stage(1)
         self.assertEqual(dongle.polls, 1)
 
     def test_pending_request_is_still_waited_for(self):
