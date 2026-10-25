@@ -15,7 +15,7 @@ Linux configuration tool for Pulsar gaming mice. Plugin architecture where each 
 ### Sync workflow
 - When adopting work from harveywuk's fork, `main` is reset to their branch and our patches are squashed into ONE commit on top. This keeps their original commit hashes in the history.
 - This means `main` goes "ahead 1, behind 1" of `origin/main` and lands via force-push. This is by design — do not merge the remote back in; that would resurrect the pre-squash commit.
-- Because history is squashed, README credits are the primary attribution record — they must be updated whenever adopted work lands.
+- Because history is squashed, README credits are the primary attribution record — they must be updated whenever adopted work lands. One line per person: what they contributed, not how it was found. The detail belongs in a comment next to the code it explains, which is where anyone changing that code will look; @f-o-o-g-s asked for his own line to be cut back to that (#24).
 
 ## Build & Validate
 
