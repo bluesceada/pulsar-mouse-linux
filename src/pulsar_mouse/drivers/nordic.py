@@ -2,7 +2,15 @@
 Pulsar Nordic chipset — protocol driver.
 
 Covers wireless and wired modes of Pulsar mice using the Nordic MCU
-(VID 0x3554).  Known compatible: X2A Wireless, X2 V2 Mini.
+(VID 0x3554).  Known compatible: X2A Wireless, Xlite V3, X2 V2 Mini.
+
+Those models share both PIDs — 0xF507 by cable, 0xF508 through the dongle —
+so nothing on the bus tells them apart, and this is one driver for all of
+them rather than a guess at which one is plugged in.  They differ in the key
+matrix and nothing else: Pulsar's own Cfg.ini carries KM=14 for the X2A and
+KM=10 for the Xlite V3 and is otherwise identical (@bluesceada, #30).  The
+consequence is in BUTTON_ADDRS below — the right-hand thumb pair is the
+X2A's, and on a six-button sibling those slots hold something else.
 
 The protocol is not tied to that VID: the X2 CrazyLight dongle ships under
 the Sonix VID 0x3710 but speaks this protocol — see drivers/x2_crazylight.py
@@ -30,8 +38,11 @@ Each value has a per-byte checksum at the next address: uint8(0x55 - value).
 The memory map represents the currently active profile.  Switching profile
 via ACTIVE_PROFILE_SET reloads the map from the device.
 
-Status: UNTESTED — protocol assumed compatible with X2A Wireless based on
-        shared Nordic chipset.  Needs validation with real hardware.
+Status: confirmed in parts, on two of the three models.  @macieqzz read the
+        X2A Wireless button layout off hardware (#9); @mwsmws22 verified
+        button writes and keyboard shortcuts on an Xlite V3 through its
+        dongle, 3554:f508 (#8).  The rest of the map comes from the X2
+        CrazyLight Fusion capture, which is the same map.
 """
 
 import ctypes
@@ -104,6 +115,11 @@ BUTTON_ADDRS = {
     # 0x74-0x7C read off a Pulsar X2A Wireless by @macieqzz.  0x74 is
     # corroborated independently: a Fusion capture of an X2 CrazyLight has
     # 02 01 (a DPI-type action) in that slot - different model, same table.
+    # The thumb pair is the X2A's own: a mouse with one side of buttons uses
+    # 0x78 and 0x7C for something else rather than leaving them spare - the
+    # same CrazyLight dump has 02 02 and 02 03 there - so on an Xlite V3,
+    # which shares this driver and both PIDs, they read as a thumb binding
+    # that isn't one and writing them writes over whatever is (#30).
     'dpi':     0x74,   # DPI button
     'thumb4':  0x78,   # right side back (backward)
     'thumb3':  0x7C,   # right side front (forward)
@@ -292,7 +308,10 @@ class PulsarNordic(PulsarDevice):
     """
 
     capabilities = DeviceCapabilities(
-        name='Pulsar X2A Wireless',
+        # Two models and one driver, because the PIDs are the same on both
+        # and the protocol is too; the Xlite V3 is named here so its owners
+        # aren't told they have an X2A (#30).
+        name='Pulsar X2A Wireless / Xlite V3',
         vid_pid_pairs=[(0x3554, 0xF507), (0x3554, 0xF508)],
         interface_num=1,
         report_size=17,

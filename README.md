@@ -7,7 +7,7 @@
 Linux configuration tool for **Pulsar gaming mice**.
 
 Plugin architecture — each mouse model has its own protocol driver.
-Currently supports the **Pulsar Xlite Wired**, **Pulsar X2 Wired**, **Pulsar X2H Wired Medium**, **Pulsar X2A Medium Wired**, **Pulsar Xlite v4**, **Pulsar Feinmann 8K / FO1**, **Pulsar X2A Wireless / X2 V2 Mini**, **Pulsar X2 CrazyLight**, **Pulsar X2 Wireless (Areson)**, and the **Pulsar Feinmann F01 Noctua Edition** — see [Supported Mice](#supported-mice) below.
+Currently supports the **Pulsar Xlite Wired**, **Pulsar X2 Wired**, **Pulsar X2H Wired Medium**, **Pulsar X2A Medium Wired**, **Pulsar Xlite v4**, **Pulsar Feinmann 8K / FO1**, **Pulsar X2A Wireless / Xlite V3 / X2 V2 Mini**, **Pulsar X2 CrazyLight**, **Pulsar X2 Wireless (Areson)**, and the **Pulsar Feinmann F01 Noctua Edition** — see [Supported Mice](#supported-mice) below.
 
 Reverse-engineered from USB HID captures of Pulsar Fusion on Windows 11.
 Wireless (Nordic) protocol based on [python-pulsar-mouse-tool](https://github.com/andrewrabert/python-pulsar-mouse-tool) by andrewrabert.
@@ -53,7 +53,7 @@ regenerates the whole set in one run; see
 | Pulsar X3 Wired | `x3` | `3710:3409` | Supported (same Sonix protocol as the Xlite v4; battery while charging, sleep timer and Low Power Mode confirmed on hardware on its cable; six profiles, DPI to 32000 in steps of 10, and its own lift-off encoding - 0.7/1/2 mm, as Fusion2 writes it) |
 | Pulsar 1K Wireless Dongle | `xlite_v4_wireless` | `3710:5402` | Supported (1K wireless dongle shared by the Fusion2 line, same Sonix protocol; battery, charging, sleep timer, Low Power Mode, link quality and which mouse is on the dongle confirmed on hardware with a Pulsar X3; lift-off distance follows whichever mouse the dongle says it is carrying) |
 | Pulsar Feinmann 8K / FO1 | `feinmann8k` | `3710:5404` | Fully supported (wireless dongle, 8K Hz polling, 6 onboard profiles) |
-| Pulsar X2A Wireless / X2 V2 Mini | `nordic` | `3554:f507` `3554:f508` | Supported (Nordic chipset, battery status) |
+| Pulsar X2A Wireless / Xlite V3 / X2 V2 Mini | `nordic` | `3554:f507` `3554:f508` | Supported (Nordic chipset, battery status; these models share both PIDs and the protocol, so one driver serves them all — the two right-hand thumb buttons it offers are the X2A's, and a six-button mouse of the family should leave them alone) |
 | Pulsar X2 CrazyLight Wireless | `x2_crazylight` | `3710:5406` | Fully supported, reads and writes confirmed on hardware (Nordic protocol under the Sonix VID, 8K Hz polling, 4 profiles) |
 | Pulsar X2 CrazyLight Wired | `x2_crazylight_wired` | `3710:3414` | Fully supported, reads and writes confirmed on hardware (same protocol as the dongle, 1K Hz max) |
 | Pulsar X2 Wireless (Areson dongle) | `x2_areson_wireless` | `25a7:fa7c` | Reads and writes confirmed on hardware (Nordic layout; GUI and button remapping tested) |
