@@ -1040,6 +1040,31 @@ class PulsarNordic(PulsarDevice):
                 return None
         return self._mid
 
+    def refine_capabilities(self) -> bool:
+        """Say which of the four this is, and drop what it has not got.
+
+        The button table here is the X2A Wireless's, four thumb buttons and
+        two per flank; the other three models on these PIDs have one flank
+        (KM=10 against its 14).  Once the MID says which model answered, the
+        name becomes that model's and a six-button mouse loses the pair it
+        does not have, so the window stops offering rows for buttons that
+        are not there - get_button()/set_button() refuse them in any case,
+        which is what protects the CLI and an import.
+        """
+        model = MODELS_BY_MID.get(self._model_mid())
+        if model is None:
+            return False        # it would not say, or a MID nobody has seen
+        name, km = model
+        changes = {'name': name}
+        if km == 10:
+            caps = self.capabilities
+            changes['buttons'] = {n: i for n, i in caps.buttons.items()
+                                  if n not in KM_RIGHT_FLANK}
+            changes['button_labels'] = {
+                n: l for n, l in (caps.button_labels or {}).items()
+                if n not in KM_RIGHT_FLANK}
+        return self._narrow_capabilities(**changes)
+
     def model_name(self):
         """What the MID says this mouse is, or None if it will not say."""
         model = MODELS_BY_MID.get(self._model_mid())

@@ -72,6 +72,20 @@ Tag with `vX.Y.Z` and push. GitHub Actions (release.yml) builds a `pulsar-mouse-
 6. Add udev rules in `udev/50-pulsar-mouse.rules`
 7. Run `PYTHONPATH=src python3 tools/check-drivers.py`. It fails CI on anything the steps above got wrong in a way that still imports
 
+### A driver that serves more than one mouse
+
+`capabilities` is a class variable so `scan_devices()` can read it without
+opening anything, so a driver covering several models can only describe them
+all until it has asked which one it has. Four Nordic mice share two PIDs; the
+1K dongle carries a whole line.
+
+Such a driver overrides `refine_capabilities()` (base.py): called with the
+device open, it replaces the description **on the instance** via
+`_narrow_capabilities(**changes)` and returns True. The GUI then builds its
+pages again (`MainWindow._capabilities_changed`), because every row, range
+and profile count comes from capabilities. It must return False once there
+is nothing left to change, or the window would rebuild on every read.
+
 ### Adding a New Setting to an Existing Driver
 
 1. Add encoding constants in the driver file (e.g., `drivers/x2a.py`)

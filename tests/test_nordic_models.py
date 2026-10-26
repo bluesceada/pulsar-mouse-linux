@@ -12,6 +12,7 @@ corroborated on his own mouse by the CheckPsd read.
 
 import unittest
 
+from pulsar_mouse.base import PulsarDevice
 from pulsar_mouse.drivers.nordic import (
     KM_RIGHT_FLANK,
     MODELS_BY_MID,
@@ -113,6 +114,61 @@ class AbsentButtonTests(unittest.TestCase):
                          'Pulsar X2A Wireless')
         self.assertIsNone(mouse(deaf=True).model_name())
 
+class RefineTests(unittest.TestCase):
+    """What the window is built from, once the MID says which mouse it is."""
+
+    def test_a_six_button_model_loses_the_right_flank(self):
+        device = mouse(XLITE_V3)
+        self.assertTrue(device.refine_capabilities())
+        caps = device.capabilities
+        self.assertEqual(caps.name, 'Pulsar Xlite V3')
+        self.assertEqual(sorted(caps.buttons),
+                         ['dpi', 'left', 'right', 'thumb1', 'thumb2', 'wheel'])
+        self.assertNotIn('thumb3', caps.button_labels)
+
+    def test_the_x2a_wireless_keeps_its_eight_and_gains_a_name(self):
+        device = mouse(X2A_WIRELESS)
+        self.assertTrue(device.refine_capabilities())
+        caps = device.capabilities
+        self.assertEqual(caps.name, 'Pulsar X2A Wireless')
+        self.assertEqual(len(caps.buttons), 8)
+        self.assertIn('thumb3', caps.buttons)
+
+    def test_the_class_is_left_alone(self):
+        # Only this instance is narrowed: scan_devices() reads the class.
+        before = dict(PulsarNordic.capabilities.buttons)
+        mouse(XLITE_V3).refine_capabilities()
+        self.assertEqual(PulsarNordic.capabilities.buttons, before)
+        self.assertEqual(len(before), 8)
+
+    def test_the_second_call_changes_nothing(self):
+        # The GUI rebuilds its pages on a True, so a driver that kept
+        # saying True would rebuild them on every read.
+        device = mouse(XLITE_V3)
+        self.assertTrue(device.refine_capabilities())
+        self.assertFalse(device.refine_capabilities())
+        self.assertFalse(device.refine_capabilities())
+
+    def test_a_mouse_that_will_not_say_is_left_as_the_family(self):
+        device = mouse(deaf=True)
+        self.assertFalse(device.refine_capabilities())
+        self.assertEqual(device.capabilities, PulsarNordic.capabilities)
+
+    def test_an_unknown_mid_is_left_as_the_family(self):
+        device = mouse(0x7F)
+        self.assertFalse(device.refine_capabilities())
+        self.assertEqual(device.capabilities, PulsarNordic.capabilities)
+
+    def test_every_other_driver_refines_nothing(self):
+        from pulsar_mouse.drivers import discover_all
+        for name, cls in discover_all().items():
+            if issubclass(cls, PulsarNordic):
+                continue
+            device = cls.__new__(cls)
+            self.assertFalse(PulsarDevice.refine_capabilities(device), name)
+
+
+class CfgIniTests(unittest.TestCase):
     def test_the_table_is_the_one_from_the_cfg_ini(self):
         self.assertEqual(
             {mid: km for mid, (_name, km) in MODELS_BY_MID.items()},

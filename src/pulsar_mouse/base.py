@@ -8,7 +8,7 @@ The GUI and CLI use DeviceCapabilities to adapt dynamically to the hardware.
 import glob
 import os
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Optional
 
 # See PulsarDevice._V1_EXPORTS_SWAP_BACK_FORWARD.
@@ -117,6 +117,34 @@ class PulsarDevice(ABC):
     """
 
     capabilities: DeviceCapabilities  # must be set as a class variable
+
+    # ── What this device turned out to be ─────────────────────────────────
+
+    def refine_capabilities(self) -> bool:
+        """Narrow `capabilities` to the device this turned out to be.
+
+        Called with the device open, and True means it changed - the GUI
+        then builds its pages again (see gui.MainWindow._open_dev).
+
+        `capabilities` is a class variable so that scan_devices() can read
+        it without opening anything, which means a driver serving more than
+        one model can only describe them all until it has asked.  Four
+        Nordic mice share two PIDs; the 1K dongle carries a whole line.  A
+        driver that can ask replaces the description on the instance here.
+
+        Every open calls this, so it must be cheap once it has an answer -
+        and it must keep returning False after the first change, or the GUI
+        would rebuild on every read.
+        """
+        return False
+
+    def _narrow_capabilities(self, **changes) -> bool:
+        """Replace this instance's capabilities; False if nothing changed."""
+        caps = replace(self.capabilities, **changes)
+        if caps == self.capabilities:
+            return False
+        self.capabilities = caps
+        return True
 
     # ── Connection lifecycle ──────────────────────────────────────────────
 

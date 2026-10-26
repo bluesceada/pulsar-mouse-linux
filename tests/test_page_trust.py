@@ -16,6 +16,7 @@ decide this, and they touch nothing else.  No display needed.
 
 import types
 import unittest
+from dataclasses import replace
 from unittest.mock import patch
 
 try:
@@ -237,6 +238,78 @@ class AboveTheCapTests(unittest.TestCase):
         w._apply()
         self.assertEqual(w.applied, [])
         self.assertIn('reload before applying', w.errors[-1])
+
+
+@unittest.skipIf(MainWindow is None, 'needs GTK 4 and libadwaita')
+class CapabilitiesChangedTests(unittest.TestCase):
+    """What happens when a driver learns better after being opened (#30).
+
+    The build itself is left to GTK - driven for real against a stub mouse
+    under a throwaway X server, which is where the two phantom button rows
+    were watched disappearing.  What is checked here is the bookkeeping
+    around it, which is where it could go wrong quietly.
+    """
+
+    def page_with(self, caps):
+        w = page()
+        w._device = types.SimpleNamespace(capabilities=caps)
+        w.built = 0
+        w.reloads = 0
+        w._build_ui = lambda: setattr(w, 'built', w.built + 1)
+        w._reload = lambda: setattr(w, 'reloads', w.reloads + 1)
+        w.set_title = lambda title: setattr(w, 'titled', title)
+        w._reload_in_flight = False
+        return w
+
+    def narrowed(self):
+        caps = PulsarXliteV4Wireless.capabilities
+        return replace(caps, name='Pulsar X3', num_profiles=2)
+
+    def test_it_rebuilds_for_the_new_capabilities(self):
+        w = self.page_with(self.narrowed())
+        w._capabilities_changed()
+        self.assertEqual(w._caps, self.narrowed())
+        self.assertEqual(w.titled, 'Pulsar X3')
+        self.assertEqual((w.built, w.reloads), (1, 1))
+
+    def test_the_page_counts_as_unread_again(self):
+        # The rows are new, so they hold their construction values: Apply
+        # has to wait for a read, exactly as on a fresh window.
+        w = self.page_with(self.narrowed())
+        w._dpi_loaded = w._read_complete = True
+        w._capabilities_changed()
+        self.assertFalse(w._dpi_loaded)
+        self.assertFalse(w._read_complete)
+
+    def test_a_profile_that_no_longer_exists_is_clamped(self):
+        w = self.page_with(self.narrowed())
+        w._profile = 5
+        w._capabilities_changed()
+        self.assertEqual(w._profile, 2)
+
+    def test_nothing_happens_when_they_match(self):
+        w = self.page_with(PulsarXliteV4Wireless.capabilities)
+        w._capabilities_changed()
+        self.assertEqual((w.built, w.reloads), (0, 0))
+
+    def test_a_read_in_flight_is_left_to_finish(self):
+        # Swapping the widgets under a running pass would have it populate
+        # rows that are already gone.
+        w = self.page_with(self.narrowed())
+        w._reload_in_flight = True
+        waits = []
+        with patch.object(gui, 'GLib', types.SimpleNamespace(
+                timeout_add=lambda ms, fn: waits.append((ms, fn)))):
+            w._capabilities_changed()
+        self.assertEqual((w.built, w.reloads), (0, 0))
+        self.assertEqual([ms for ms, _fn in waits], [100])
+        self.assertEqual(waits[0][1], w._capabilities_changed)
+
+    def test_a_device_that_has_gone_is_not_rebuilt_for(self):
+        w = self.page_with(self.narrowed())
+        w._device = None
+        w._capabilities_changed()
+        self.assertEqual((w.built, w.reloads), (0, 0))
 
 
 if __name__ == '__main__':

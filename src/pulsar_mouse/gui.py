@@ -1777,7 +1777,12 @@ class MainWindow(Adw.ApplicationWindow):
             self._view_stack.add_named(self._build_power_page(), 'power')
         self._view_stack.add_named(self._build_tools_page(), 'tools')
 
-        content_page = Adw.NavigationPage.new(content_toolbar, '')
+        # Named after the mouse rather than left empty: an AdwNavigationPage
+        # with no title warns on every build, and since _capabilities_changed()
+        # builds this a second time there were two of them.  The header bar
+        # above shows its own title widget, so this one is only what a
+        # screen reader and the back button say.
+        content_page = Adw.NavigationPage.new(content_toolbar, caps.name)
         split_view.set_content(content_page)
 
         nav_list.select_row(nav_list.get_row_at_index(0))
@@ -3014,6 +3019,14 @@ X-GNOME-Autostart-enabled=true
         _USB_LOCK.acquire()
         try:
             device.open()
+            # Now that it is open it may be able to say what it is; a driver
+            # that serves several models cannot until then.  True only on
+            # the open that changes something, so this does not fire again.
+            try:
+                if device.refine_capabilities():
+                    GLib.idle_add(self._capabilities_changed)
+            except Exception:
+                pass            # a page built for the family still works
             GLib.idle_add(self._banner.set_revealed, False)
             return True
         except RuntimeError as e:
@@ -3024,6 +3037,39 @@ X-GNOME-Autostart-enabled=true
             _USB_LOCK.release()
             GLib.idle_add(self._show_error, f'Error opening device: {e}')
             return False
+
+    def _capabilities_changed(self) -> bool:
+        """Build the pages again for what the device turned out to be.
+
+        Everything in this window comes from capabilities - which rows
+        exist, how many profiles the selector offers, what each range is -
+        so a driver that learns better after being opened leaves the window
+        describing the family rather than the mouse.  @bluesceada's Xlite V3
+        was offered the X2A Wireless's two extra thumb buttons (#30).
+
+        Runs on the main thread, after whatever read found this out: the
+        pass that is running holds the widgets this would replace, and it is
+        about to be redone against the new ones anyway.
+        """
+        if self._device is None:
+            return False
+        if self._reload_in_flight:
+            GLib.timeout_add(100, self._capabilities_changed)
+            return False
+        caps = self._device.capabilities
+        if caps == self._caps:
+            return False
+        self._caps = caps
+        self.set_title(caps.name)
+        self._profile = min(self._profile, caps.num_profiles)
+        # The rows below are new, so they hold their construction values and
+        # nothing has been read into them - the v0.1.21 rule starts over, or
+        # Apply would write a page that was never filled.
+        self._dpi_loaded = False
+        self._read_complete = False
+        self._build_ui()
+        self._reload()
+        return False
 
     def _close_dev(self):
         if self._device:
