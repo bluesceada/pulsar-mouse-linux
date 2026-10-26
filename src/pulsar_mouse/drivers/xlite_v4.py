@@ -8,8 +8,9 @@ The Xlite v4 is a right-handed ergonomic mouse (EC-clone shape) with 2 side
 buttons on the left side plus a dedicated sniper/DPI button below the scroll
 wheel (6 total buttons).
 
-Status: UNTESTED — protocol assumed identical to X2A based on shared Sonix
-        chipset (VID 0x3710).  Button IDs may need adjustment once tested
+Status: partly measured.  @variasjon read its lift-off register and its
+        profile list on both connections (#34); the rest is still assumed
+        identical to the X2A on the shared Sonix chipset (VID 0x3710).  Button IDs may need adjustment once tested
         with real hardware.  So does _DPI_EVENT_FIRST_STAGE, inherited as 0
         from the X2A: the two Fusion2 mice that have been measured, the X3
         on its cable and on the 1K dongle, both count from 1 instead.  If
@@ -27,11 +28,12 @@ class PulsarXliteV4(Fusion2LodTenths, PulsarX2A):
     addresses.  Right-handed ergonomic shape with 2 side buttons.
 
     Lift-off is the one register it does not share: @variasjon read all six
-    profiles of his through the 1K dongle and the five he had never touched
-    hold 02 0a, the mode-and-tenths shape, where x2a.py's table would call
-    that 2 mm (#34).  So Fusion2LodTenths, as on the X3 - which also means
-    the two choices this driver offers now write 02 0a and 02 14 instead of
-    00 00 and 01 01, the pairs it had been writing over the mouse's own.
+    profiles of his through the 1K dongle and then over its cable, and the
+    five he had never touched hold 02 0a either way - the mode-and-tenths
+    shape, where x2a.py's table would call that 2 mm (#34).  So
+    Fusion2LodTenths, as on the X3 - which also means the two choices this
+    driver offers now write 02 0a and 02 14 instead of 00 00 and 01 01, the
+    pairs it had been writing over the mouse's own.
 
     lod_values stays at 1 and 2 mm: the register would carry 0.7 as 02 07,
     and the Dongle Kit pages claim it, but those pages are copy-paste and no
@@ -44,11 +46,23 @@ class PulsarXliteV4(Fusion2LodTenths, PulsarX2A):
         vid_pid_pairs=[(0x3710, 0x3401)],
         interface_num=3,
         report_size=64,
-        num_profiles=5,
+        # Six, read off the mouse: @variasjon's answers 02/82/10 with a
+        # count of 6 and the IDs 1-6 after it, over its cable and through
+        # the dongle alike (#34).  The 5 here before was x2a.py's, a
+        # different mouse's.
+        num_profiles=6,
         max_dpi_stages=6,
         dpi_min=100,
-        dpi_max=26000,
-        dpi_step=100,
+        # The XS-1's range, as the 1K dongle this mouse is sold with now
+        # carries (#35): every mouse in that kit has that sensor, listed at
+        # 32,000 DPI in 10-unit steps.  26000 in steps of 100 was the X2A
+        # Wired's PAW3395, inherited from x2a.py, and it left the same mouse
+        # with two different ceilings depending on which end it was reached
+        # from - a stage set to 32000 through the dongle then read back on
+        # the cable is a value the page cannot show, which since caebe1b
+        # stops it being applied at all.
+        dpi_max=32000,
+        dpi_step=10,
         buttons={
             'left':   0x01,
             'right':  0x02,

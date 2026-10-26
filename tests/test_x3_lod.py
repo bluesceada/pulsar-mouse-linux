@@ -235,6 +235,24 @@ class CabledXliteV4Tests(unittest.TestCase):
         self.assertEqual(scripted(PulsarXliteV4, 0x00, 0x00).get_lod(1), 1.0)
         self.assertEqual(scripted(PulsarXliteV4, 0x01, 0x01).get_lod(1), 1.0)
 
+    def test_the_cable_reads_what_the_dongle_read(self):
+        # @variasjon ran the same probe over the cable: p1 still held the
+        # 01 01 this app wrote, p2-p6 the mouse's own 02 0a (#34).
+        self.assertEqual(scripted(PulsarXliteV4, 0x01, 0x01).get_lod(1), 1.0)
+        self.assertEqual(scripted(PulsarXliteV4, 0x02, 0x0a).get_lod(2), 1.0)
+
+    def test_its_limits_are_the_mouse_s_own(self):
+        caps = PulsarXliteV4.capabilities
+        # 02/82/10 answers with a count of 6 on both connections, and the
+        # mouse carries the XS-1 like the rest of the Dongle Kit (#34, #35).
+        self.assertEqual(caps.num_profiles, 6)
+        self.assertEqual((caps.dpi_max, caps.dpi_step), (32000, 10))
+        # The same values the dongle that carries it offers, so one mouse
+        # cannot have two ceilings depending on which end it is reached from.
+        dongle = PulsarXliteV4Wireless.capabilities
+        self.assertEqual((caps.dpi_max, caps.dpi_step),
+                         (dongle.dpi_max, dongle.dpi_step))
+
     def test_its_two_choices_are_unchanged(self):
         # 0.7 would be 02 07, and the Dongle Kit page claims it, but no
         # capture of Fusion2 driving this mouse has been seen.
