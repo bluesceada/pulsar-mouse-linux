@@ -449,6 +449,48 @@ class PulsarXliteV4Wireless(Fusion2Power, PulsarXliteV4):
         self._last_sent = None
         # Not _write_answered - see _WRITE_GAP.
 
+    # What belongs to the mouse rather than to the link: its profiles, its
+    # DPI range and its lift-off distances are stored in the mouse and come
+    # back through whichever end is plugged in.  Polling rates are not here
+    # on purpose - those are the dongle's own ceiling - and neither is
+    # anything that identifies a driver (vid_pid_pairs, model_key, wireless).
+    _CARRIED_FIELDS = ('num_profiles', 'max_dpi_stages', 'dpi_min', 'dpi_max',
+                       'dpi_step', 'lod_values', 'lod_step')
+
+    def refine_capabilities(self) -> bool:
+        """Describe the mouse this dongle is carrying, not the line.
+
+        One dongle serves the whole Fusion2 line, so its class-level
+        description has to fit all of them: five profiles where an X3 and an
+        Xlite v4 both have six, and two lift-off distances where the X3 has
+        three.  Both were wrong for every mouse actually measured on it
+        (#24, #34), and the cure is the question it already asks - which
+        mouse is on the other end - and then that driver's own numbers.
+
+        Nothing new is read off the mouse: get_connected_mouse() answers
+        from the dongle's pairing memory in about a millisecond, whether the
+        mouse is awake, asleep or on its cable.  A mouse this repo has no
+        cabled driver for leaves the description alone.
+        """
+        from pulsar_mouse.drivers import discover_all
+
+        try:
+            carried = self.get_connected_mouse()
+        except Exception:
+            return False
+        ids = (carried['vid'], carried['pid'])
+        for cls in discover_all().values():
+            caps = cls.capabilities
+            if ids in caps.vid_pid_pairs and caps.wireless is not True:
+                changes = {f: getattr(caps, f) for f in self._CARRIED_FIELDS}
+                # "Pulsar X3 Wired (1K dongle)" would be two connections at
+                # once; the cabled driver's name says Wired because that is
+                # which half it is.
+                base = caps.name.removesuffix(' Wired')
+                changes['name'] = f'{base} (1K dongle)'
+                return self._narrow_capabilities(**changes)
+        return False
+
     def _lod_is_tenths(self) -> bool:
         """Whether the mouse on the dongle uses Fusion2LodTenths' encoding.
 

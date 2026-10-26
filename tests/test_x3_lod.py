@@ -212,6 +212,61 @@ class DongleTests(unittest.TestCase):
         other.import_profile(1, {'version': 2, 'lod_mm': 2})
         self.assertEqual(tuple(other.sent[-1][7:9]), (0x01, 0x01))
 
+    def test_the_dongle_describes_the_mouse_it_carries(self):
+        # Five profiles and two lift-off values fit the whole line and no
+        # mouse measured on it: an X3 has six and three (#24, #34).
+        dongle = scripted(PulsarXliteV4Wireless, paired=X3_PID)
+        self.assertEqual(dongle.capabilities.num_profiles, 5)
+        self.assertTrue(dongle.refine_capabilities())
+        caps = dongle.capabilities
+        self.assertEqual(caps.name, 'Pulsar X3 (1K dongle)')
+        self.assertEqual(caps.num_profiles, 6)
+        self.assertEqual(caps.lod_values, [0.7, 1, 2])
+        # Its own ceiling, not the mouse's: the link decides this one.
+        self.assertEqual(caps.polling_rates,
+                         PulsarXliteV4Wireless.capabilities.polling_rates)
+        self.assertIs(caps.wireless, True)
+        self.assertEqual(caps.vid_pid_pairs,
+                         PulsarXliteV4Wireless.capabilities.vid_pid_pairs)
+
+    def test_it_then_offers_the_x3_s_shortest_lift_off(self):
+        dongle = scripted(PulsarXliteV4Wireless, 0x02, 0x07, paired=X3_PID)
+        dongle.refine_capabilities()
+        dongle.set_lod(0.7, 1)
+        self.assertEqual(tuple(dongle.sent[-1][7:9]), (0x02, 0x07))
+        self.assertEqual(dongle.get_lod(1), 0.7)
+
+    def test_an_xlite_v4_brings_its_six_profiles_and_two_values(self):
+        dongle = scripted(PulsarXliteV4Wireless, paired=XLITE_V4_PID)
+        self.assertTrue(dongle.refine_capabilities())
+        caps = dongle.capabilities
+        self.assertEqual(caps.name, 'Pulsar Xlite v4 (1K dongle)')
+        self.assertEqual(caps.num_profiles, 6)
+        self.assertEqual(caps.lod_values, [1, 2])
+
+    def test_a_mouse_with_no_cabled_driver_is_left_alone(self):
+        dongle = scripted(PulsarXliteV4Wireless, paired=UNREAD_PID)
+        self.assertFalse(dongle.refine_capabilities())
+        self.assertEqual(dongle.capabilities,
+                         PulsarXliteV4Wireless.capabilities)
+
+    def test_a_dongle_that_will_not_say_is_left_alone(self):
+        dongle = scripted(PulsarXliteV4Wireless, pairing=False)
+        self.assertFalse(dongle.refine_capabilities())
+        self.assertEqual(dongle.capabilities,
+                         PulsarXliteV4Wireless.capabilities)
+
+    def test_it_settles_after_one_pass(self):
+        # The GUI rebuilds its pages on a True.
+        dongle = scripted(PulsarXliteV4Wireless, paired=X3_PID)
+        self.assertTrue(dongle.refine_capabilities())
+        self.assertFalse(dongle.refine_capabilities())
+
+    def test_the_class_still_describes_the_line(self):
+        scripted(PulsarXliteV4Wireless, paired=X3_PID).refine_capabilities()
+        self.assertEqual(PulsarXliteV4Wireless.capabilities.num_profiles, 5)
+        self.assertEqual(PulsarXliteV4Wireless.capabilities.lod_values, [1, 2])
+
     def test_the_two_pids_are_the_two_that_were_read(self):
         self.assertEqual(LOD_TENTHS_PIDS, {X3_PID, XLITE_V4_PID})
 
