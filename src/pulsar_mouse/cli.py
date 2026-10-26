@@ -57,7 +57,9 @@ def print_global(device: PulsarDevice):
         # so far (see nordic.get_model_ids).
         try:
             cid, mid = device.get_model_ids()
-            print(f"  Model IDs:        cid={cid} mid={mid}")
+            named = getattr(device, 'model_name', lambda: None)()
+            says = f"  ({named})" if named else ""
+            print(f"  Model IDs:        cid={cid} mid={mid}{says}")
         except Exception:
             pass
     if hasattr(device, 'get_connected_mouse'):

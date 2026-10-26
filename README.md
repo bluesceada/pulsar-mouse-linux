@@ -7,7 +7,7 @@
 Linux configuration tool for **Pulsar gaming mice**.
 
 Plugin architecture — each mouse model has its own protocol driver.
-Currently supports the **Pulsar Xlite Wired**, **Pulsar X2 Wired**, **Pulsar X2H Wired Medium**, **Pulsar X2A Medium Wired**, **Pulsar Xlite v4**, **Pulsar Feinmann 8K / FO1**, **Pulsar X2A Wireless / Xlite V3 / X2 V2 Mini**, **Pulsar X2 CrazyLight**, **Pulsar X2 Wireless (Areson)**, and the **Pulsar Feinmann F01 Noctua Edition** — see [Supported Mice](#supported-mice) below.
+Currently supports the **Pulsar Xlite Wired**, **Pulsar X2 Wired**, **Pulsar X2H Wired Medium**, **Pulsar X2A Medium Wired**, **Pulsar Xlite v4**, **Pulsar Feinmann 8K / FO1**, **Pulsar X2A Wireless / Xlite V3 / X2 V2 (Mini)**, **Pulsar X2 CrazyLight**, **Pulsar X2 Wireless (Areson)**, and the **Pulsar Feinmann F01 Noctua Edition** — see [Supported Mice](#supported-mice) below.
 
 Reverse-engineered from USB HID captures of Pulsar Fusion on Windows 11.
 Wireless (Nordic) protocol based on [python-pulsar-mouse-tool](https://github.com/andrewrabert/python-pulsar-mouse-tool) by andrewrabert.
@@ -53,7 +53,7 @@ regenerates the whole set in one run; see
 | Pulsar X3 Wired | `x3` | `3710:3409` | Supported (same Sonix protocol as the Xlite v4; battery while charging, sleep timer and Low Power Mode confirmed on hardware on its cable; six profiles, DPI to 32000 in steps of 10, and its own lift-off encoding - 0.7/1/2 mm, as Fusion2 writes it) |
 | Pulsar 1K Wireless Dongle | `xlite_v4_wireless` | `3710:5402` | Supported (1K wireless dongle shared by the Fusion2 line, same Sonix protocol; battery, charging, sleep timer, Low Power Mode, link quality and which mouse is on the dongle confirmed on hardware with a Pulsar X3; lift-off distance follows whichever mouse the dongle says it is carrying) |
 | Pulsar Feinmann 8K / FO1 | `feinmann8k` | `3710:5404` | Fully supported (wireless dongle, 8K Hz polling, 6 onboard profiles) |
-| Pulsar X2A Wireless / Xlite V3 / X2 V2 Mini | `nordic` | `3554:f507` `3554:f508` | Supported (Nordic chipset, battery status; these models share both PIDs and the protocol, so one driver serves them all — the two right-hand thumb buttons it offers are the X2A's, and a six-button mouse of the family should leave them alone) |
+| Pulsar X2A Wireless / Xlite V3 / X2 V2 (Mini) | `nordic` | `3554:f507` `3554:f508` | Supported (Nordic chipset, battery status; four models share both PIDs and the protocol, so one driver serves them all and asks the mouse which it is — the two right-hand thumb buttons belong to the X2A Wireless alone, and on the other three the driver now refuses them instead of writing to slots their firmware uses for something else) |
 | Pulsar X2 CrazyLight Wireless | `x2_crazylight` | `3710:5406` | Fully supported, reads and writes confirmed on hardware (Nordic protocol under the Sonix VID, 8K Hz polling, 4 profiles) |
 | Pulsar X2 CrazyLight Wired | `x2_crazylight_wired` | `3710:3414` | Fully supported, reads and writes confirmed on hardware (same protocol as the dongle, 1K Hz max) |
 | Pulsar X2 Wireless (Areson dongle) | `x2_areson_wireless` | `25a7:fa7c` | Reads and writes confirmed on hardware (Nordic layout; GUI and button remapping tested) |
@@ -380,7 +380,7 @@ link, and the code comments next to whatever each finding explains.
 - [@iamtherobin](https://github.com/iamtherobin) — Pulsar Fusion USB captures and screen recordings that the X2 CrazyLight drivers (dongle and wired) were decoded from
 - [@dbergPROTAKT](https://github.com/dbergPROTAKT) — Pulsar X2 Wireless (Areson IDs) driver, with hardware testing over both the dongle and the cable; the hidraw framing checks that keep another program's replies out of ours, and the swap and retry timing behind the sleeping-mouse fixes
 - [@macieqzz](https://github.com/macieqzz) — Pulsar X2A Wireless button layout confirmed on hardware (thumb3/thumb4/DPI addresses and function slots)
-- [@bluesceada](https://github.com/bluesceada) — Xlite V3: found that it shares the X2A Wireless's USB IDs and differs only in the key matrix, and the readings that corrected the Nordic firmware string
+- [@bluesceada](https://github.com/bluesceada) — Xlite V3: found that it shares the X2A Wireless's USB IDs and differs only in the key matrix, the captures that decoded the CID/MID identity read, and the readings that corrected the Nordic firmware string
 - [@Wyatt-Robinson](https://github.com/Wyatt-Robinson) — Feinmann F01 Noctua Edition: USB capture and screen recording the driver was decoded from, plus hardware testing
 - meniscus- — Found that a wheel turn over a GUI slider silently changed the setting, on an X2 CrazyLight
 - [andrewrabert](https://github.com/andrewrabert) — [python-pulsar-mouse-tool](https://github.com/andrewrabert/python-pulsar-mouse-tool), reference implementation for the Nordic wireless protocol

@@ -147,6 +147,27 @@ ADDR_LED_ENABLED       = 0x52
 # Buttons: 4 bytes each (mode, arg1, arg2, checksum)
 ADDR_BUTTON_BASE      = 0x60
 BUTTON_SIZE           = 4
+# What a CID/MID pair means, from Fusion's own Cfg.ini (@bluesceada, #30).
+# CID is 6 for every mouse on these two PIDs; the MID picks the model, and
+# with it the KM - the key matrix, which is how many buttons the mouse has.
+# Only 0x07 has been read off hardware so far (an Xlite V3, whose CheckPsd
+# answered cid=6 mid=7 and whose right-hand slots hold what a six-button
+# mouse keeps there); the other three come from that file.
+MODELS_BY_MID = {
+    0x07: ('Pulsar Xlite V3', 10),
+    0x08: ('Pulsar X2A Wireless', 14),
+    0x0A: ('Pulsar X2 V2 Wireless', 10),
+    0x0B: ('Pulsar X2 V2 Mini Wireless', 10),
+}
+
+# The pair a KM=10 mouse does not have.  0x78 and 0x7C are the X2A
+# Wireless's right flank; on the other three they hold something else - an
+# Xlite V3 reads 02 02 and 02 03 there, DPI-type actions, byte for byte what
+# the X2 CrazyLight keeps in them (#30).  So a mouse the MID says is
+# six-button refuses both, rather than reading a binding that is not one and
+# writing over whatever its firmware uses them for.
+KM_RIGHT_FLANK = ('thumb3', 'thumb4')
+
 BUTTON_ADDRS = {
     'left':    0x60,
     'right':   0x64,
@@ -408,6 +429,7 @@ class PulsarNordic(PulsarDevice):
     _DPI_MODES: tuple = DPI_MODES_SINGLE    # see the DPI encoding notes
 
     def __init__(self):
+        self._mid = None        # see _model_mid()
         self._dev = None        # pyusb handle, only on the fallback path
         self._fd = None         # hidraw fd, the path this normally takes
         self._mem = {}
@@ -1004,12 +1026,49 @@ class PulsarNordic(PulsarDevice):
 
     # ── Per-profile: button bindings ─────────────────────────────────────
 
+    def _model_mid(self):
+        """The MID this mouse answered with, or None if it never has.
+
+        Remembered for the life of the driver object rather than the open:
+        a mouse cannot change which model it is, and a read that fails later
+        should not undo one that worked.  Not asked again once answered.
+        """
+        if self._mid is None:
+            try:
+                _cid, self._mid = self.get_model_ids()
+            except Exception:
+                return None
+        return self._mid
+
+    def model_name(self):
+        """What the MID says this mouse is, or None if it will not say."""
+        model = MODELS_BY_MID.get(self._model_mid())
+        return model[0] if model else None
+
+    def _refuse_absent_button(self, btn_id: int, name: str) -> None:
+        """Raise for a button the model named by the MID does not have.
+
+        NotImplementedError rather than ValueError: for the GUI that means
+        "this driver has no such field", which leaves the row alone instead
+        of counting the page as half-read (see gui._read_field).  Three of
+        the four models on these PIDs are six-button - see KM_RIGHT_FLANK.
+        """
+        if name not in KM_RIGHT_FLANK:
+            return
+        model = MODELS_BY_MID.get(self._model_mid())
+        if model is None or model[1] != 10:
+            return      # an X2A Wireless, or a mouse that would not say
+        raise NotImplementedError(
+            f"a {model[0]} has no {name}: it has {model[1] // 2} buttons, "
+            f"and that slot holds something else")
+
     def get_button(self, btn_id: int, profile: int) -> tuple[int, int, int]:
         self._ensure_profile(profile)
         btn_names = {v: k for k, v in self.capabilities.buttons.items()}
         name = btn_names.get(btn_id)
         if name is None:
             raise ValueError(f"Unknown button ID 0x{btn_id:02x}")
+        self._refuse_absent_button(btn_id, name)
         addr = self._BUTTON_ADDRS[name]
         raw_type = self._mem.get(addr, 0)
         raw_a1 = self._mem.get(addr + 1, 0)
@@ -1057,6 +1116,7 @@ class PulsarNordic(PulsarDevice):
         name = btn_names.get(btn_id)
         if name is None:
             raise ValueError(f"Unknown button ID 0x{btn_id:02x}")
+        self._refuse_absent_button(btn_id, name)
         addr = self._BUTTON_ADDRS[name]
 
         if btn_type == BTN_TYPE_MOUSE:
