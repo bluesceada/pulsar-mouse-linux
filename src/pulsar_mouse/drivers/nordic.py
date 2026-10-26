@@ -65,6 +65,7 @@ REPORT_ID = 0x08
 
 # ── Commands ─────────────────────────────────────────────────────────────────
 
+CMD_HANDSHAKE         = 0x01
 CMD_STATUS            = 0x03
 CMD_POWER             = 0x04
 CMD_MEM_SET           = 0x07
@@ -98,10 +99,22 @@ CMD_FW_VERSION        = 0x12
 # that mouse and the X2A in the key matrix alone, KM=14 against KM=10, which
 # is the layout that call picks.
 #
-# So the identity is on the wire and arrives in the first few milliseconds.
-# What is not known is which command carries it, and one usbmon capture of
-# Fusion starting would say.  Do not go looking by sending untried command
-# bytes: 0x09 is the factory reset.
+# That query is command 0x01, and get_model_ids() below is it.  Two usbmon
+# captures of Fusion starting (@bluesceada, #30) have it sent three
+# milliseconds after the link check, exactly where the log puts CheckPsd:
+#
+#   > 08 01 00 00 00 08 5f 5f 32 5d ...     a 4-byte nonce at bytes 6-9
+#   < 08 01 00 00 00 08 c4 f7 f3 d3 06 07 02 ...
+#                       \________/ \___/
+#                        the nonce   cid=6, mid=7
+#
+# The four bytes that come back are the nonce transformed, which nothing
+# here needs; the pair after them is the answer, and it was the same in the
+# second capture under a different nonce.  Byte 12 was 0x02 both times and
+# is unexplained - Fusion's log carries a b4KDevice flag it may be.
+#
+# Do not go looking for more of this by sending untried command bytes:
+# 0x09 is the factory reset.
 
 # The mouse sends this one unprompted when something changed on the device
 # itself.  Byte 6 says what.  The report carries no new value — four presses
@@ -716,6 +729,24 @@ class PulsarNordic(PulsarDevice):
         except Exception:
             return 'unknown'
         return f'{resp[6]:x}.{resp[7]:02x}'
+
+    def get_model_ids(self) -> tuple[int, int]:
+        """(CID, MID): the pair Fusion identifies one of these mice by.
+
+        Three models share both PIDs, so this is the only thing that tells
+        them apart - see the note above the commands for the capture it came
+        from.  @bluesceada's Xlite V3 answers (6, 7); nothing else has been
+        read yet, so no driver decides anything on it.  The CLI prints it,
+        which is how the rest get collected.
+
+        The nonce is random, as Fusion's is.  Its answer is not checked:
+        two captures show the pair arriving regardless of what went out.
+        """
+        nonce = os.urandom(4)
+        resp = self._command(CMD_HANDSHAKE, b5=0x08,
+                             b6=nonce[0], b7=nonce[1],
+                             b8=nonce[2], b9=nonce[3])
+        return resp[10], resp[11]
 
     # ── Active profile ───────────────────────────────────────────────────
     # The memory map *is* the active profile: switching reloads all of it.

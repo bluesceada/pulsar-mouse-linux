@@ -51,6 +51,15 @@ def print_global(device: PulsarDevice):
         print(f"  Active profile:   {device.get_active_profile()}")
     except Exception:
         pass
+    if hasattr(device, 'get_model_ids'):
+        # Three Nordic models share both PIDs and this pair is what tells
+        # them apart; printed because only one of the three has been read
+        # so far (see nordic.get_model_ids).
+        try:
+            cid, mid = device.get_model_ids()
+            print(f"  Model IDs:        cid={cid} mid={mid}")
+        except Exception:
+            pass
     if hasattr(device, 'get_connected_mouse'):
         # A dongle shared across models: say which mouse is actually on it.
         try:
