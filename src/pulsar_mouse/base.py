@@ -407,14 +407,19 @@ class PulsarDevice(ABC):
                     data['breathe_speed'] = self.get_breathe_speed(profile)
                 except Exception:
                     pass
-        try:
-            buttons = {}
-            for name, bid in caps.buttons.items():
+        # Per button, so one the mouse has not got does not take the rest
+        # of them with it: a driver that refuses the right-hand thumb pair
+        # (three of the four Nordic mice have no such buttons) used to drop
+        # every binding from the export, this one's included (#30).
+        buttons = {}
+        for name, bid in caps.buttons.items():
+            try:
                 t, a1, a2 = self.get_button(bid, profile)
-                buttons[name] = self.describe_button(t, a1, a2)
+            except Exception:
+                continue
+            buttons[name] = self.describe_button(t, a1, a2)
+        if buttons:
             data['buttons'] = buttons
-        except Exception:
-            pass
         return data
 
     def import_profile(self, profile: int, data: dict) -> list[str]:

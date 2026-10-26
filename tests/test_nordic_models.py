@@ -10,8 +10,11 @@ MID values from Fusion's Cfg.ini, contributed by @bluesceada; mid=7
 corroborated on his own mouse by the CheckPsd read.
 """
 
+import contextlib
+import io
 import unittest
 
+from pulsar_mouse import cli
 from pulsar_mouse.base import PulsarDevice
 from pulsar_mouse.drivers.nordic import (
     KM_RIGHT_FLANK,
@@ -166,6 +169,35 @@ class RefineTests(unittest.TestCase):
                 continue
             device = cls.__new__(cls)
             self.assertFalse(PulsarDevice.refine_capabilities(device), name)
+
+
+class ButtonListTests(unittest.TestCase):
+    """A button the mouse has not got must not take the rest with it."""
+
+    def test_an_export_keeps_every_button_it_can_read(self):
+        # The refusal used to drop the whole 'buttons' dict, the DPI
+        # button's binding included (#30).
+        device = mouse(XLITE_V3)
+        data = device.export_profile(1)
+        self.assertEqual(sorted(data['buttons']),
+                         ['dpi', 'left', 'right', 'thumb1', 'thumb2', 'wheel'])
+
+    def test_the_cli_prints_past_the_one_it_cannot_read(self):
+        device = mouse(XLITE_V3)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            cli.print_profile(device, 1)
+        lines = [l.strip() for l in out.getvalue().splitlines()]
+        named = [l.split()[0] for l in lines if l.startswith(('left', 'right',
+                 'wheel', 'thumb', 'dpi'))]
+        self.assertIn('dpi', named)
+        self.assertNotIn('thumb3', named)
+        self.assertNotIn('thumb4', named)
+        self.assertNotIn('error', out.getvalue())
+
+    def test_the_x2a_wireless_still_lists_eight(self):
+        data = mouse(X2A_WIRELESS).export_profile(1)
+        self.assertEqual(len(data['buttons']), 8)
 
 
 class CfgIniTests(unittest.TestCase):

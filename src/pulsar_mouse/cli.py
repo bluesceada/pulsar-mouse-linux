@@ -177,13 +177,21 @@ def print_profile(device: PulsarDevice, profile: int):
             print(f"  LED:              error ({e})")
     if caps.per_profile_globals:
         print_tunables(device, profile)
-    try:
-        print(f"  Buttons:")
-        for name, bid in caps.buttons.items():
+    # One try per button, not one around the lot.  A driver can refuse a
+    # button the mouse it turned out to be has not got - three of the four
+    # Nordic mice have no right-hand thumb pair - and that used to end the
+    # loop, so @bluesceada's Xlite V3 printed five buttons and then an error
+    # where its DPI button should have been (#30).
+    print(f"  Buttons:")
+    for name, bid in caps.buttons.items():
+        try:
             t, a1, a2 = device.get_button(bid, profile)
-            print(f"    {name:<8} (0x{bid:02x}): {device.describe_button(t, a1, a2)}")
-    except Exception as e:
-        print(f"  Buttons:          error ({e})")
+        except NotImplementedError:
+            continue        # not a button on this mouse
+        except Exception as e:
+            print(f"    {name:<8} (0x{bid:02x}): error ({e})")
+            continue
+        print(f"    {name:<8} (0x{bid:02x}): {device.describe_button(t, a1, a2)}")
 
 
 def print_all(device: PulsarDevice):
