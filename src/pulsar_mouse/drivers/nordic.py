@@ -90,10 +90,18 @@ CMD_FW_VERSION        = 0x12
 #   0x15  01 at byte 2, nothing else.
 #   0x17  ten zero bytes.
 #
-# Fusion identifies a mouse by CID and MID through a "CheckPsd" query
-# (@bluesceada, from its Cfg.ini, which differs between those two models in
-# the key matrix alone - KM=14 against KM=10), so a capture of Fusion
-# starting up is what would settle it.
+# Fusion identifies a mouse by CID and MID through a "CheckPsd" query, and
+# its own Debug=2 log shows that happening: "CheckPsd: cid=6, mid=7" three
+# milliseconds after the connect, then "RefreshLayout for 0x3395" - the
+# sensor that pair maps to - where the default cid=6/mid=1 it starts on maps
+# to a 0x3370 (@bluesceada's Xlite V3, #30).  Its Cfg.ini differs between
+# that mouse and the X2A in the key matrix alone, KM=14 against KM=10, which
+# is the layout that call picks.
+#
+# So the identity is on the wire and arrives in the first few milliseconds.
+# What is not known is which command carries it, and one usbmon capture of
+# Fusion starting would say.  Do not go looking by sending untried command
+# bytes: 0x09 is the factory reset.
 
 # The mouse sends this one unprompted when something changed on the device
 # itself.  Byte 6 says what.  The report carries no new value — four presses
