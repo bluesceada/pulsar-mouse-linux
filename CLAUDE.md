@@ -86,6 +86,11 @@ pages again (`MainWindow._capabilities_changed`), because every row, range
 and profile count comes from capabilities. It must return False once there
 is nothing left to change, or the window would rebuild on every read.
 
+`cli.main()` opens and refines **before** it validates `--profile`, so the
+check is against the mouse rather than the family; `open()` is a no-op on an
+already-open device, which is what lets the branches below it open as they
+always did.
+
 ### Adding a New Setting to an Existing Driver
 
 1. Add encoding constants in the driver file (e.g., `drivers/x2a.py`)

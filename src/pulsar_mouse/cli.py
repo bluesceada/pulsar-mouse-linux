@@ -33,6 +33,20 @@ def _parse_bool(s, name):
     raise ValueError(f"--{name}: expected on or off, got '{s}'")
 
 
+def _bail(device, message):
+    """Leave the device as it was found, then stop with `message`.
+
+    main() opens before it validates (see there), so an argument it refuses
+    is refused with the mouse already open - and a Nordic mouse's close()
+    is what puts it back on the profile its owner was using.
+    """
+    try:
+        device.close()
+    except Exception:
+        pass
+    sys.exit(message)
+
+
 def _has_power_saving(device) -> bool:
     """True when the power-saving control applies to this mouse."""
     return (hasattr(device, 'get_power_saving_timeout')
@@ -361,21 +375,42 @@ def main():
     except RuntimeError as e:
         sys.exit(f"Error: {e}")
 
+    if args.battery_json and not hasattr(device, 'get_power'):
+        # Not an error - a wired mouse just has no battery to report.
+        # Exit 0 so scripts can tell "no battery" apart from "device
+        # not found"/a failed read (both of those exit non-zero).
+        # Answered before anything opens the device below, so the one
+        # question that needs no USB at all still asks none.
+        print(json.dumps({'wireless': False}))
+        return
+
+    # Opened here, once, rather than by each branch below: a driver that
+    # serves several mice can only describe them all until it has been
+    # asked which one it has (PulsarDevice.refine_capabilities), and
+    # everything from here down is measured against that description -
+    # --profile first.  The 1K dongle allows five profiles where both mice
+    # measured behind it have six (#34), so --profile 6 was refused for a
+    # mouse that has one.  The branches still open and close as they did;
+    # open() is a no-op on an open device, and this way a Nordic mouse
+    # reads its memory map once instead of twice.
+    try:
+        device.open()
+    except Exception as e:
+        sys.exit(f"Error: {e}")
+    try:
+        device.refine_capabilities()
+    except Exception:
+        pass            # the family's description still works
+
     caps = device.capabilities
 
     if args.profile is not None and not 1 <= args.profile <= caps.num_profiles:
-        sys.exit(f"Error: --profile must be 1–{caps.num_profiles}")
+        _bail(device, f"Error: --profile must be 1–{caps.num_profiles}")
 
     if args.active_profile is not None and not 1 <= args.active_profile <= caps.num_profiles:
-        sys.exit(f"Error: --active-profile must be 1–{caps.num_profiles}")
+        _bail(device, f"Error: --active-profile must be 1–{caps.num_profiles}")
 
     if args.battery_json:
-        if not hasattr(device, 'get_power'):
-            # Not an error - a wired mouse just has no battery to report.
-            # Exit 0 so scripts can tell "no battery" apart from "device
-            # not found"/a failed read (both of those exit non-zero).
-            print(json.dumps({'wireless': False}))
-            return
         device.open()
         try:
             pwr = device.get_power()

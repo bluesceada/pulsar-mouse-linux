@@ -189,6 +189,8 @@ class PulsarX2A(PulsarDevice):
 
     def open(self) -> None:
         caps = self.capabilities
+        if self._dev is not None:
+            return      # already open; claiming the interface twice is EBUSY
         vid, pid = caps.vid_pid_pairs[0]
         dev = usb.core.find(idVendor=vid, idProduct=pid)
         if dev is None:

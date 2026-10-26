@@ -3,7 +3,13 @@ byte 8 the distance in tenths of a millimetre, which is what Fusion2 itself
 writes - unlike the X2A, whose register x2a.py's table came from.  Also the 1K
 dongle, which uses that encoding only while it is carrying such a mouse."""
 
+import contextlib
+import io
+import sys
 import unittest
+from unittest.mock import patch
+
+from pulsar_mouse import cli
 
 from pulsar_mouse.base import PulsarDevice
 from pulsar_mouse.drivers.x2a import LOD_TENTHS_PIDS, PulsarX2A
@@ -317,6 +323,49 @@ class CabledXliteV4Tests(unittest.TestCase):
         for cls in (PulsarX2A, PulsarX2H, PulsarXliteWired):
             self.assertIs(cls.get_lod, PulsarX2A.get_lod, cls.__name__)
             self.assertIs(cls.set_lod, PulsarX2A.set_lod, cls.__name__)
+
+
+class CliRefineTests(unittest.TestCase):
+    """The CLI validates --profile against the mouse, not the family (#34).
+
+    The dongle allows five profiles until it has asked which mouse it has;
+    both mice ever measured behind it have six, so main() has to open and
+    refine before it checks the argument.
+    """
+
+    def run_cli(self, device, *argv):
+        out = io.StringIO()
+        with patch.object(cli, 'find_device', lambda name=None: device), \
+                patch.object(sys, 'argv', ['pulsar-mouse', *argv]), \
+                contextlib.redirect_stdout(out):
+            cli.main()
+        return out.getvalue()
+
+    def dongle(self):
+        dongle = scripted(PulsarXliteV4Wireless, 0x02, 0x0a, paired=X3_PID)
+        dongle.open = lambda: None
+        dongle.close = lambda: None
+        return dongle
+
+    def test_the_sixth_profile_of_a_six_profile_mouse_is_allowed(self):
+        dongle = self.dongle()
+        self.run_cli(dongle, '--profile', '6', '--lod', '1')
+        write = [f for f in dongle.sent if f[1:4] == bytes([0x07, 0x02, 0x03])]
+        self.assertEqual(write[-1][6], 6)           # the profile byte
+        self.assertEqual(tuple(write[-1][7:9]), (0x02, 0x0a))
+
+    def test_a_seventh_is_still_refused(self):
+        with self.assertRaises(SystemExit) as caught:
+            self.run_cli(self.dongle(), '--profile', '7', '--lod', '1')
+        self.assertIn('1–6', str(caught.exception))
+
+    def test_a_mouse_it_cannot_identify_keeps_the_family_s_five(self):
+        dongle = scripted(PulsarXliteV4Wireless, paired=UNREAD_PID)
+        dongle.open = lambda: None
+        dongle.close = lambda: None
+        with self.assertRaises(SystemExit) as caught:
+            self.run_cli(dongle, '--profile', '6', '--lod', '1')
+        self.assertIn('1–5', str(caught.exception))
 
 
 if __name__ == '__main__':
