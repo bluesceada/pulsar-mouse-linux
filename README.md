@@ -49,7 +49,7 @@ regenerates the whole set in one run; see
 | Pulsar X2 Wired | `x2_wired` | `3710:1402` | Supported (Sonix) |
 | Pulsar X2H Wired Medium | `x2h` | `3710:1403` | Fully supported |
 | Pulsar X2A Medium Wired | `x2a` | `3710:1404` | Fully supported |
-| Pulsar Xlite v4 | `xlite_v4` | `3710:3401` | Untested (same Sonix protocol) |
+| Pulsar Xlite v4 | `xlite_v4` | `3710:3401` | Mostly untested (same Sonix protocol); its lift-off register was read through the 1K dongle and keeps the X3's mode-and-tenths shape, so that is what this driver writes |
 | Pulsar X3 Wired | `x3` | `3710:3409` | Supported (same Sonix protocol as the Xlite v4; battery while charging, sleep timer and Low Power Mode confirmed on hardware on its cable; six profiles, DPI to 32000 in steps of 10, and its own lift-off encoding - 0.7/1/2 mm, as Fusion2 writes it) |
 | Pulsar 1K Wireless Dongle | `xlite_v4_wireless` | `3710:5402` | Supported (1K wireless dongle shared by the Fusion2 line, same Sonix protocol; battery, charging, sleep timer, Low Power Mode, link quality and which mouse is on the dongle confirmed on hardware with a Pulsar X3; lift-off distance follows whichever mouse the dongle says it is carrying) |
 | Pulsar Feinmann 8K / FO1 | `feinmann8k` | `3710:5404` | Fully supported (wireless dongle, 8K Hz polling, 6 onboard profiles) |
@@ -373,7 +373,7 @@ link, and the code comments next to whatever each finding explains.
 
 - [@packerlschupfer](https://github.com/packerlschupfer) — Original creator and maintainer of pulsar-mouse-linux
 - [@harveywuk](https://github.com/harveywuk) — Feinmann 8K/FO1 driver, multi-profile support, button remapping, desktop pointer-settings integration, Nix flake, GUI redesign, protocol reliability fixes (stale-reply guard, LED read-modify-write, RF settle timing)
-- [@variasjon](https://github.com/variasjon) — Xlite v4 wireless dongle driver
+- [@variasjon](https://github.com/variasjon) — Xlite v4 wireless dongle driver, and the readings that gave that mouse its lift-off encoding and found a sixth profile the dongle hides
 - [@f-o-o-g-s](https://github.com/f-o-o-g-s) — Pulsar X3 and 1K dongle support, Fusion2 captures and protocol decoding, the dongle's lost-request recovery, write pacing and DPI range, the GUI's event listeners and read-reliability fixes, the screenshot set, and a great deal of hardware testing
 - [@mwsmws22](https://github.com/mwsmws22) — Nordic keyboard shortcut fix (shortcut-table writes, Xlite V3 button mapping)
 - [@Scout339](https://github.com/Scout339) — Logo design, wireless mouse testing

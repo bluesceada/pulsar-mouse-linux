@@ -17,14 +17,26 @@ Status: UNTESTED — protocol assumed identical to X2A based on shared Sonix
 """
 
 from pulsar_mouse.base import DeviceCapabilities
-from pulsar_mouse.drivers.x2a import PulsarX2A
+from pulsar_mouse.drivers.x2a import Fusion2LodTenths, PulsarX2A
 
 
-class PulsarXliteV4(PulsarX2A):
+class PulsarXliteV4(Fusion2LodTenths, PulsarX2A):
     """Driver for the Pulsar Xlite v4 mouse (Sonix chipset).
 
     Inherits the full X2A protocol — same 64-byte packets, same register
     addresses.  Right-handed ergonomic shape with 2 side buttons.
+
+    Lift-off is the one register it does not share: @variasjon read all six
+    profiles of his through the 1K dongle and the five he had never touched
+    hold 02 0a, the mode-and-tenths shape, where x2a.py's table would call
+    that 2 mm (#34).  So Fusion2LodTenths, as on the X3 - which also means
+    the two choices this driver offers now write 02 0a and 02 14 instead of
+    00 00 and 01 01, the pairs it had been writing over the mouse's own.
+
+    lod_values stays at 1 and 2 mm: the register would carry 0.7 as 02 07,
+    and the Dongle Kit pages claim it, but those pages are copy-paste and no
+    capture of Fusion2 driving this mouse has been seen.  One line to add
+    when somebody looks.
     """
 
     capabilities = DeviceCapabilities(

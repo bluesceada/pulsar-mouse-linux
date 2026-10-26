@@ -6,13 +6,18 @@ dongle, which uses that encoding only while it is carrying such a mouse."""
 import unittest
 
 from pulsar_mouse.base import PulsarDevice
-from pulsar_mouse.drivers.x2a import PulsarX2A
+from pulsar_mouse.drivers.x2a import LOD_TENTHS_PIDS, PulsarX2A
+from pulsar_mouse.drivers.x2h import PulsarX2H
+from pulsar_mouse.drivers.xlite_wired import PulsarXliteWired
 from pulsar_mouse.drivers.x3 import PulsarX3
 from pulsar_mouse.drivers.xlite_v4 import PulsarXliteV4
 from pulsar_mouse.drivers.xlite_v4_wireless import PulsarXliteV4Wireless
 
 X3_PID = 0x3409
 XLITE_V4_PID = 0x3401
+# A Fusion2 mouse the dongle can carry whose lift-off shape nobody has read:
+# the X2 v3, X2H v3 and X2A v3 are in the Dongle Kit and not in this repo.
+UNREAD_PID = 0x34FF
 
 
 def scripted(cls, byte7=0x02, byte8=0x0a, paired=X3_PID, pairing=True):
@@ -118,9 +123,18 @@ class DongleTests(unittest.TestCase):
         dongle.set_lod(2, 1)
         self.assertEqual(tuple(dongle.sent[-1][7:9]), (0x02, 0x14))
 
-    def test_another_mouse_on_the_dongle_keeps_the_x2a_encoding(self):
-        dongle = scripted(PulsarXliteV4Wireless, 0x01, 0x00,
+    def test_an_xlite_v4_on_the_dongle_gets_it_too(self):
+        # @variasjon's, the second of the five kit mice to be read: the five
+        # profiles he had never touched all hold 02 0a (#34).
+        dongle = scripted(PulsarXliteV4Wireless, 0x02, 0x0a,
                           paired=XLITE_V4_PID)
+        self.assertEqual(dongle.get_lod(1), 1.0)
+        dongle.set_lod(2, 1)
+        self.assertEqual(tuple(dongle.sent[-1][7:9]), (0x02, 0x14))
+
+    def test_a_mouse_nobody_has_read_keeps_the_x2a_encoding(self):
+        dongle = scripted(PulsarXliteV4Wireless, 0x01, 0x00,
+                          paired=UNREAD_PID)
         self.assertEqual(dongle.get_lod(1), 2)      # byte 7, x2a.py's table
         dongle.set_lod(2, 1)
         self.assertEqual(tuple(dongle.sent[-1][7:9]), (0x01, 0x01))
@@ -194,13 +208,42 @@ class DongleTests(unittest.TestCase):
         dongle.import_profile(1, {'version': 2, 'lod_mm': 2})
         self.assertEqual(tuple(dongle.sent[-1][7:9]), (0x02, 0x0a))
 
-        other = scripted(PulsarXliteV4Wireless, paired=XLITE_V4_PID)
+        other = scripted(PulsarXliteV4Wireless, paired=UNREAD_PID)
         other.import_profile(1, {'version': 2, 'lod_mm': 2})
         self.assertEqual(tuple(other.sent[-1][7:9]), (0x01, 0x01))
 
-    def test_the_cabled_xlite_v4_is_untouched(self):
-        self.assertIs(PulsarXliteV4.get_lod, PulsarX2A.get_lod)
-        self.assertIs(PulsarXliteV4.set_lod, PulsarX2A.set_lod)
+    def test_the_two_pids_are_the_two_that_were_read(self):
+        self.assertEqual(LOD_TENTHS_PIDS, {X3_PID, XLITE_V4_PID})
+
+
+class CabledXliteV4Tests(unittest.TestCase):
+    """The same register on the same mouse, reached by its own cable."""
+
+    def test_it_reads_the_distance_rather_than_the_mode(self):
+        # x2a.py's table called 02 0a "2 mm" while the mouse was on 1.0.
+        self.assertEqual(scripted(PulsarXliteV4, 0x02, 0x0a).get_lod(1), 1.0)
+
+    def test_it_writes_the_mode_and_the_tenths(self):
+        for mm, pair in ((1, (0x02, 0x0a)), (2, (0x02, 0x14))):
+            mouse = scripted(PulsarXliteV4, *pair)
+            mouse.set_lod(mm, 1)
+            self.assertEqual(tuple(mouse.sent[-1][7:9]), pair)
+            self.assertEqual(mouse.get_lod(1), mm)
+
+    def test_a_pair_this_app_wrote_reads_as_one_millimetre(self):
+        # What --lod 1 and --lod 2 put there before this: 00 00 and 01 01.
+        self.assertEqual(scripted(PulsarXliteV4, 0x00, 0x00).get_lod(1), 1.0)
+        self.assertEqual(scripted(PulsarXliteV4, 0x01, 0x01).get_lod(1), 1.0)
+
+    def test_its_two_choices_are_unchanged(self):
+        # 0.7 would be 02 07, and the Dongle Kit page claims it, but no
+        # capture of Fusion2 driving this mouse has been seen.
+        self.assertEqual(PulsarXliteV4.capabilities.lod_values, [1, 2])
+
+    def test_the_older_sonix_mice_are_untouched(self):
+        for cls in (PulsarX2A, PulsarX2H, PulsarXliteWired):
+            self.assertIs(cls.get_lod, PulsarX2A.get_lod, cls.__name__)
+            self.assertIs(cls.set_lod, PulsarX2A.set_lod, cls.__name__)
 
 
 if __name__ == '__main__':

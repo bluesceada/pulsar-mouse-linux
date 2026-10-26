@@ -32,6 +32,9 @@ import time
 from typing import Optional
 
 from pulsar_mouse.base import DeviceCapabilities
+from pulsar_mouse.drivers.x2a import (
+    Fusion2LodTenths, LOD_TENTHS_PIDS, PulsarX2A,
+)
 from pulsar_mouse.drivers.xlite_v4 import PulsarXliteV4
 
 # Cabled PIDs the dongle has been seen reporting through get_connected_mouse()
@@ -51,79 +54,6 @@ def _cabled_name(vid: int, pid: int) -> Optional[str]:
         if (vid, pid) in caps.vid_pid_pairs and caps.wireless is not True:
             return caps.name
     return CONNECTED_MOUSE_NAMES.get(pid)
-
-
-# Cabled PIDs of mice that keep 07/02/03 as a mode and a distance rather
-# than as the X2A's single index - see Fusion2LodTenths.  The 1K dongle asks
-# which mouse it is carrying and looks it up here.
-LOD_TENTHS_PIDS = {
-    0x3409,     # Pulsar X3, x3.py's cabled PID
-}
-
-# Byte 7 of 07/02/03 when byte 8 is a distance in tenths of a millimetre.
-# Module-level rather than a class attribute: the dongle calls the methods
-# below without inheriting them, so that it keeps its own super() (#24).
-_LOD_MODE_TENTHS = 0x02
-
-
-class Fusion2LodTenths:
-    """07/02/03 as a mode and a distance in tenths of a millimetre.
-
-    The X3 does not use this register the way the X2A does, which is where
-    x2a.py's two-value table came from.  Byte 7 says how byte 8 is to be
-    read, and in mode 2 byte 8 is the distance in tenths of a millimetre.
-
-    @f-o-o-g-s captured Fusion2 1.0.5.8 driving an X3 through the 1K dongle,
-    and its three buttons write exactly that, each reading back unchanged
-    (#24):
-
-        0.7 mm -> 02 07        1 mm -> 02 0a        2 mm -> 02 14
-
-    A lift test with coins under the mouse's feet agrees: of those three only
-    02 14 still tracked at 1.75 mm, 02 0a stopped around 1.5 mm and 02 07 at
-    or below that.  The X3 ships on 02 0a, its 1 mm.
-
-    x2a.py reads byte 7, so it reported that as "2 mm" while the mouse was on
-    1.0, and its set_lod() writes the value twice, so this app's "2 mm" wrote
-    01 01 - mode 1, which the same lift test puts at about 1.0 mm too.  Apply
-    writes the LOD row whether or not it changed, so changing anything else
-    on the page replaced the mouse's own 02 0a with that.
-
-    Hence a pair that is not mode 2 reads as 1 mm: it is one this app wrote
-    before it knew the encoding, when its two choices were labelled 1 mm and
-    2 mm and both landed at or near the mouse's 1.0, and the next write makes
-    it exact.  Nothing else writes this register - Fusion2 never wrote a mode
-    other than 2 in any capture.
-
-    Of those two, 01 01 (the old "2 mm") was measured behaving like 02 0a.
-    00 00 (the old "1 mm") was put through the coins too: it is a working
-    setting rather than off or ignored, tracking in all eight windows at 1.35
-    and 1.52 mm, but that round's rig sat low enough that 02 07 and 02 0a
-    tracked at 1.52 mm as well, so it cannot be separated from them.  All it
-    supports is that 00 00 tracks like the others up to 1.5 mm and nothing
-    says it reaches further - which is consistent with reading it as 1 mm,
-    and is as far as coins go.
-
-    Which settings are offered is the driver's, not this mixin's: it writes
-    whatever capabilities.lod_values holds.
-    """
-
-    def get_lod(self, profile: int) -> float:
-        rsp = self._read(0x07, 0x02, 0x03, profile)
-        if rsp[7] != _LOD_MODE_TENTHS:
-            return 1.0
-        return round(rsp[8] / 10, 1)
-
-    def set_lod(self, mm: float, profile: int) -> None:
-        values = self.capabilities.lod_values
-        if mm not in values:
-            raise ValueError("LOD must be one of "
-                             + ", ".join(f'{v}' for v in values) + " (mm)")
-        self._cmd(0x07, 0x02, 0x03, profile,
-                  [_LOD_MODE_TENTHS, round(mm * 10)])
-
-    def _lod_export_is_mode_byte(self) -> bool:
-        return True
 
 
 class Fusion2Power:
@@ -542,15 +472,18 @@ class PulsarXliteV4Wireless(Fusion2Power, PulsarXliteV4):
                 self.get_connected_mouse()['pid'] in LOD_TENTHS_PIDS)
         return self._lod_tenths
 
+    # PulsarX2A's by name, not super()'s: PulsarXliteV4 carries the tenths
+    # mixin now (its own mouse needs it), so super() would reach that and
+    # both branches would be the same one.
     def get_lod(self, profile: int) -> float:
         if self._lod_is_tenths():
             return Fusion2LodTenths.get_lod(self, profile)
-        return super().get_lod(profile)
+        return PulsarX2A.get_lod(self, profile)
 
     def set_lod(self, mm: float, profile: int) -> None:
         if self._lod_is_tenths():
             return Fusion2LodTenths.set_lod(self, mm, profile)
-        return super().set_lod(mm, profile)
+        return PulsarX2A.set_lod(self, mm, profile)
 
     def _lod_export_is_mode_byte(self) -> bool:
         # A profile file does not record which mouse was on the dongle when

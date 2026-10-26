@@ -26,12 +26,10 @@ Confirmed on hardware with a Pulsar X3 on its cable (2026-10).
 
 from pulsar_mouse.base import DeviceCapabilities
 from pulsar_mouse.drivers.xlite_v4 import PulsarXliteV4
-from pulsar_mouse.drivers.xlite_v4_wireless import (
-    Fusion2LodTenths, Fusion2Power,
-)
+from pulsar_mouse.drivers.xlite_v4_wireless import Fusion2Power
 
 
-class PulsarX3(Fusion2Power, Fusion2LodTenths, PulsarXliteV4):
+class PulsarX3(Fusion2Power, PulsarXliteV4):
     """Driver for the Pulsar X3 on its cable (Sonix chipset)."""
 
     capabilities = DeviceCapabilities(
