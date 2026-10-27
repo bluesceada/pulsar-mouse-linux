@@ -176,6 +176,20 @@ _INITIAL_READ_TRIES = 3
 
 
 def _button_row():
+    """A row that looks and behaves like a button.
+
+    Adw.ButtonRow is libadwaita 1.6; Ubuntu 24.04 LTS ships 1.5, where
+    building a page that used one raised AttributeError and the window never
+    appeared (@bluesceada, PR #36).  An activatable ActionRow carries the
+    same title and emits the same "activated" signal - it is what the
+    button-remap rows in this file have always used - and only looks
+    different, so the fallback costs nothing but the button styling.
+
+    ButtonRow is the only API here newer than 1.5: SpinRow, SwitchRow,
+    ToolbarView and NavigationSplitView are 1.4, Banner 1.3, AlertDialog
+    1.5, the rest 1.0.  tests/test_gui_builds.py builds the window both
+    ways so that stays true.
+    """
     if hasattr(Adw, 'ButtonRow'):
         return Adw.ButtonRow()
     return Adw.ActionRow(activatable=True)

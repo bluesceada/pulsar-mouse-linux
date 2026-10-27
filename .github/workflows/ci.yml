@@ -21,7 +21,8 @@ jobs:
             python3-gi \
             gir1.2-gtk-4.0 \
             gir1.2-adw-1 \
-            gir1.2-dbusmenu-glib-0.4
+            gir1.2-dbusmenu-glib-0.4 \
+            xvfb
 
       - name: Syntax check
         run: |
@@ -50,10 +51,14 @@ jobs:
           print(f'X2A caps: {PulsarX2A.capabilities.name}')
           "
 
+      # Under xvfb because tests/test_gui_builds.py builds the real window,
+      # and without a display it skips - which is how Adw.ButtonRow (1.6)
+      # reached a release while CI ran on Ubuntu 24.04's libadwaita 1.5 and
+      # only ever imported the GUI (PR #36).
       - name: Protocol regression tests
         env:
           PYTHONPATH: src
-        run: python3 -m unittest discover -s tests
+        run: xvfb-run -a python3 -m unittest discover -s tests
 
       - name: Driver consistency check
         env:
