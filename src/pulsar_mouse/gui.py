@@ -175,6 +175,12 @@ _ABSENT_WAIT = 2.0
 _INITIAL_READ_TRIES = 3
 
 
+def _button_row():
+    if hasattr(Adw, 'ButtonRow'):
+        return Adw.ButtonRow()
+    return Adw.ActionRow(activatable=True)
+
+
 def _dont_edit_on_scroll(widget):
     """Stop a stray wheel turn over `widget` from changing its value.
 
@@ -2097,7 +2103,7 @@ class MainWindow(Adw.ApplicationWindow):
             self._speed_row.set_subtitle('Multiplier from -1.0 (slow) to 1.0 (fast), 0 = no change')
             os_group.add(self._speed_row)
 
-            speed_apply = Adw.ButtonRow()
+            speed_apply = _button_row()
             speed_apply.set_title('Apply Desktop Settings')
             speed_apply.connect('activated', self._on_os_apply)
             os_group.add(speed_apply)
@@ -2124,7 +2130,7 @@ class MainWindow(Adw.ApplicationWindow):
             self._hypr_speed_row.set_subtitle('Multiplier from -1.0 (slow) to 1.0 (fast), 0 = no change')
             hypr_group.add(self._hypr_speed_row)
 
-            hypr_apply = Adw.ButtonRow()
+            hypr_apply = _button_row()
             hypr_apply.set_title('Apply Hyprland Settings')
             hypr_apply.set_tooltip_text(
                 f'Applied live via hyprctl, and written to {self._HYPR_CONF_PATH} '
@@ -2159,7 +2165,7 @@ class MainWindow(Adw.ApplicationWindow):
             self._kde_speed_row.set_subtitle('Multiplier from -1.0 (slow) to 1.0 (fast), 0 = no change')
             kde_group.add(self._kde_speed_row)
 
-            kde_apply = Adw.ButtonRow()
+            kde_apply = _button_row()
             kde_apply.set_title('Apply KDE Settings')
             kde_apply.connect('activated', self._on_kde_apply)
             kde_group.add(kde_apply)
@@ -2405,13 +2411,13 @@ X-GNOME-Autostart-enabled=true
         diagnostics_group = Adw.PreferencesGroup()
         diagnostics_group.set_title('Diagnostics')
 
-        test_row = Adw.ButtonRow()
+        test_row = _button_row()
         test_row.set_title('Test Input')
         test_row.connect('activated', self._on_test_clicked)
         diagnostics_group.add(test_row)
 
         if caps.has_reset:
-            reset_row = Adw.ButtonRow()
+            reset_row = _button_row()
             reset_row.set_title('Reset to Factory Defaults')
             reset_row.add_css_class('destructive-action')
             reset_row.connect('activated', self._on_reset_clicked)
@@ -2422,12 +2428,12 @@ X-GNOME-Autostart-enabled=true
         io_group.set_description(
             'Save the current profile\'s settings to a JSON file, or load them from one')
 
-        export_row = Adw.ButtonRow()
+        export_row = _button_row()
         export_row.set_title('Export Profile to JSON')
         export_row.connect('activated', self._on_export_clicked)
         io_group.add(export_row)
 
-        import_row = Adw.ButtonRow()
+        import_row = _button_row()
         import_row.set_title('Import Profile from JSON')
         import_row.connect('activated', self._on_import_clicked)
         io_group.add(import_row)
